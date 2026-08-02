@@ -11,7 +11,7 @@ const SUPPORT_PHONE_DISPLAY = "0542 586 15 90";
 const SUPPORT_PHONE_TEL = "+905425861590";
 const SUPPORT_WHATSAPP = "https://wa.me/905425861590";
 const TRENDYOL_STORE =
-  "https://www.trendyol.com/sr?q=Ontic&qt=Ontic&st=Ontic";
+  "https://www.trendyol.com/magaza/m-m-198608";
 const INSTAGRAM = "https://www.instagram.com/";
 
 const WHY_ITEMS = [
