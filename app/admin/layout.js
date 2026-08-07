@@ -18,6 +18,11 @@ const LINKS = [
   { href: "/admin/mesajlar", label: "Mesajlar", badge: "messages" },
   { href: "/admin/duyurular", label: "Duyurular" },
   { href: "/admin/basvurular", label: "Başvurular", badge: "applications" },
+  {
+    href: "/admin/urun-talepleri",
+    label: "Üretici Ürün Talepleri",
+    badge: "productRequests",
+  },
   { href: "/admin/iletisim", label: "İletişim Formu", badge: "contact" },
 ];
 
@@ -67,6 +72,7 @@ export default function AdminLayout({ children }) {
   const router = useRouter();
   const [pendingApps, setPendingApps] = useState(0);
   const [newContacts, setNewContacts] = useState(0);
+  const [pendingProductRequests, setPendingProductRequests] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -97,8 +103,17 @@ export default function AdminLayout({ children }) {
       if (!error) setNewContacts(count || 0);
     }
 
+    async function loadPendingProductRequests() {
+      const { count, error } = await supabase
+        .from("product_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending");
+      if (!error) setPendingProductRequests(count || 0);
+    }
+
     loadPendingApps();
     loadNewContacts();
+    loadPendingProductRequests();
 
     const channel = supabase
       .channel("admin-pending-badges")
@@ -171,6 +186,7 @@ export default function AdminLayout({ children }) {
     if (link.badge === "messages" && hasUnread) return unreadCount || 1;
     if (link.badge === "applications") return pendingApps;
     if (link.badge === "contact") return newContacts;
+    if (link.badge === "productRequests") return pendingProductRequests;
     return 0;
   }
 
@@ -183,7 +199,8 @@ export default function AdminLayout({ children }) {
   const alertTotal =
     (hasUnread ? unreadCount || 1 : 0) +
     (pendingApps || 0) +
-    (newContacts || 0);
+    (newContacts || 0) +
+    (pendingProductRequests || 0);
   const isMessages = pathname.startsWith("/admin/mesajlar");
 
   return (

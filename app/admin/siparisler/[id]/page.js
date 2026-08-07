@@ -63,6 +63,8 @@ export default function AdminOrderDetailPage() {
   const [saving, setSaving] = useState(false);
   const [cargoUploadingId, setCargoUploadingId] = useState(null);
   const [cargoPreviewUrl, setCargoPreviewUrl] = useState("");
+  const [orderCancelOpen, setOrderCancelOpen] = useState(false);
+  const [orderCancelSaving, setOrderCancelSaving] = useState(false);
   const cargoFileRefs = useRef({});
 
   // Dağıtım modalı — ürün bazlı: her kalemde ayrı üretici
@@ -403,28 +405,36 @@ export default function AdminOrderDetailPage() {
     }
   }
 
-  async function toggleOrderCancel() {
-    const supabase = createClient();
-    const nextStatus =
-      order.internal_status === "cancelled"
-        ? "pending_assignment"
-        : "cancelled";
-    if (
-      !confirm(
-        nextStatus === "cancelled"
-          ? "Bu siparişi tamamen iptal etmek istiyor musunuz?"
-          : "Siparişin iptalini geri almak istiyor musunuz?"
-      )
-    )
-      return;
-    await supabase
-      .from("trendyol_orders")
-      .update({
-        internal_status: nextStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", orderId);
-    await load();
+  async function confirmOrderCancelToggle() {
+    if (!order) return;
+    const restoring = order.internal_status === "cancelled";
+    setOrderCancelSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch("/api/admin/orders/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          action: restoring ? "restore" : "cancel",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "İşlem başarısız");
+      setOrderCancelOpen(false);
+      setMessage(
+        restoring
+          ? "Sipariş iptali geri alındı"
+          : "Sipariş ve bağlı üretici siparişleri iptal edildi"
+      );
+      await load();
+    } catch (err) {
+      setError(err.message);
+      setOrderCancelOpen(false);
+    } finally {
+      setOrderCancelSaving(false);
+    }
   }
 
   if (loading) return <p>Yükleniyor...</p>;
@@ -463,7 +473,7 @@ export default function AdminOrderDetailPage() {
           </span>
           <button
             type="button"
-            onClick={toggleOrderCancel}
+            onClick={() => setOrderCancelOpen(true)}
             className={`rounded-xl px-4 py-2 text-sm font-medium ${orderCancelled
                 ? "bg-emerald-600 text-white"
                 : "bg-rose-600 text-white"
@@ -1051,6 +1061,55 @@ export default function AdminOrderDetailPage() {
         alt="Kargo kodu"
         onClose={() => setCargoPreviewUrl("")}
       />
+
+      {orderCancelOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-cancel-title"
+          >
+            <h3
+              id="order-cancel-title"
+              className="text-lg font-semibold text-zinc-900"
+            >
+              {orderCancelled
+                ? "İptali geri almak istiyor musunuz?"
+                : "Siparişi iptal etmek istiyor musunuz?"}
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+              {orderCancelled
+                ? "Sipariş yeniden dağıtım durumuna alınır. Daha önce iptal edilen üretici siparişleri otomatik geri gelmez."
+                : "Sipariş iptal edilecek ve bu siparişe bağlı tüm üretici siparişleri de iptal edilecek."}
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                disabled={orderCancelSaving}
+                onClick={() => setOrderCancelOpen(false)}
+                className="flex-1 rounded-xl border border-zinc-300 py-2.5 text-sm font-medium disabled:opacity-60"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={orderCancelSaving}
+                onClick={confirmOrderCancelToggle}
+                className={`flex-1 rounded-xl py-2.5 text-sm font-medium text-white disabled:opacity-60 ${
+                  orderCancelled ? "bg-emerald-600" : "bg-rose-600"
+                }`}
+              >
+                {orderCancelSaving
+                  ? "İşleniyor..."
+                  : orderCancelled
+                    ? "Evet, geri al"
+                    : "Evet, iptal et"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

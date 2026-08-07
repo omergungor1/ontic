@@ -115,6 +115,8 @@ export default function ProducerLayout({ children }) {
   const router = useRouter();
   const [profile, setProfile] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const { hasUnread } = useUnreadMessages({
     role: "producer",
     clearOnPath: "/uretici/mesajlar",
@@ -157,8 +159,15 @@ export default function ProducerLayout({ children }) {
     return children;
   }
 
-  async function logout() {
+  function requestLogout() {
     setMenuOpen(false);
+    setLogoutOpen(true);
+  }
+
+  async function logout() {
+    setLoggingOut(true);
+    setMenuOpen(false);
+    setLogoutOpen(false);
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/giris");
@@ -197,7 +206,7 @@ export default function ProducerLayout({ children }) {
 
           <button
             type="button"
-            onClick={logout}
+            onClick={requestLogout}
             className="hidden rounded-full border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-600 sm:inline-flex"
           >
             Çıkış
@@ -251,11 +260,10 @@ export default function ProducerLayout({ children }) {
                     key={item.href}
                     href={item.href}
                     onClick={() => setMenuOpen(false)}
-                    className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium ${
-                      active
-                        ? "bg-orange-50 text-orange-700"
-                        : "text-zinc-700 hover:bg-zinc-50"
-                    }`}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium ${active
+                      ? "bg-orange-50 text-orange-700"
+                      : "text-zinc-700 hover:bg-zinc-50"
+                      }`}
                   >
                     <span className="relative">
                       <Icon className="h-5 w-5" />
@@ -272,13 +280,53 @@ export default function ProducerLayout({ children }) {
             <div className="border-t border-zinc-100 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
-                onClick={logout}
+                onClick={requestLogout}
                 className="w-full rounded-xl border border-zinc-300 bg-white py-3 text-sm font-semibold text-zinc-700"
               >
                 Çıkış Yap
               </button>
             </div>
           </aside>
+        </div>
+      ) : null}
+
+      {logoutOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="producer-logout-title"
+          >
+            <h3
+              id="producer-logout-title"
+              className="text-lg font-semibold text-zinc-900"
+            >
+              Çıkış yapmak istiyor musunuz?
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+              Üretici panelinden çıkış yapılacak. Tekrar giriş yapmanız
+              gerekecek.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={() => setLogoutOpen(false)}
+                className="flex-1 rounded-xl border border-zinc-300 py-2.5 text-sm font-medium disabled:opacity-60"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={logout}
+                className="flex-1 rounded-xl bg-rose-600 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              >
+                {loggingOut ? "Çıkış yapılıyor..." : "Evet, çıkış yap"}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -293,11 +341,10 @@ export default function ProducerLayout({ children }) {
       </main>
 
       <nav
-        className={`z-40 border-t border-zinc-200 bg-white pb-[env(safe-area-inset-bottom)] ${
-          isMessages
-            ? "shrink-0"
-            : "fixed inset-x-0 bottom-0"
-        }`}
+        className={`z-40 border-t border-zinc-200 bg-white pb-[env(safe-area-inset-bottom)] ${isMessages
+          ? "shrink-0"
+          : "fixed inset-x-0 bottom-0"
+          }`}
       >
         <div className="mx-auto flex max-w-2xl items-stretch justify-between">
           {NAV_ITEMS.map((item) => {
@@ -309,9 +356,8 @@ export default function ProducerLayout({ children }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`relative flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium ${
-                  active ? "text-orange-600" : "text-zinc-500"
-                }`}
+                className={`relative flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium ${active ? "text-orange-600" : "text-zinc-500"
+                  }`}
               >
                 <span className="relative">
                   <Icon className="h-6 w-6" />

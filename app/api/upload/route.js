@@ -61,6 +61,13 @@ export async function POST(request) {
       );
     }
 
+    if (bucket === "product-request-images" && !isAllowedMessageImage(file)) {
+      return NextResponse.json(
+        { error: "Ürün talebi için yalnızca görsel yükleyebilirsiniz" },
+        { status: 400 }
+      );
+    }
+
     const admin = createAdminClient();
     const rawExt = file.name?.split(".").pop()?.toLowerCase();
     const ext =
