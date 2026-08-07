@@ -3,7 +3,19 @@
 import Image from "next/image";
 import { useEffect } from "react";
 
+function isPdfUrl(url) {
+  if (!url) return false;
+  try {
+    const path = new URL(url, "https://local").pathname.toLowerCase();
+    return path.endsWith(".pdf");
+  } catch {
+    return String(url).toLowerCase().includes(".pdf");
+  }
+}
+
 export default function ImageLightbox({ src, alt = "Görsel", onClose }) {
+  const isPdf = isPdfUrl(src);
+
   useEffect(() => {
     if (!src) return undefined;
 
@@ -29,7 +41,7 @@ export default function ImageLightbox({ src, alt = "Görsel", onClose }) {
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Görsel önizleme"
+      aria-label={isPdf ? "PDF önizleme" : "Görsel önizleme"}
     >
       <button
         type="button"
@@ -41,17 +53,37 @@ export default function ImageLightbox({ src, alt = "Görsel", onClose }) {
       </button>
 
       <div
-        className="relative h-[85vh] w-full max-w-5xl"
+        className="relative flex h-[85vh] w-full max-w-5xl flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <Image
-          src={src}
-          alt={alt}
-          fill
-          className="object-contain"
-          sizes="100vw"
-          priority
-        />
+        {isPdf ? (
+          <>
+            <iframe
+              src={src}
+              title={alt || "PDF"}
+              className="h-full w-full flex-1 rounded-xl bg-white"
+            />
+            <a
+              href={src}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 self-center rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/25"
+            >
+              PDF&apos;i yeni sekmede aç
+            </a>
+          </>
+        ) : (
+          <div className="relative h-full w-full">
+            <Image
+              src={src}
+              alt={alt}
+              fill
+              className="object-contain"
+              sizes="100vw"
+              priority
+            />
+          </div>
+        )}
       </div>
     </div>
   );

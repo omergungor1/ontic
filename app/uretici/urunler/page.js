@@ -6,17 +6,23 @@ import ImageLightbox from "@/components/ImageLightbox";
 import { createClient } from "@/lib/supabase/client";
 import { truncate } from "@/lib/format";
 
-const SAVE_DELAY_MS = 450;
-
 export default function ProducerProductsPage() {
   const [rows, setRows] = useState([]);
+  const [savedMap, setSavedMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState("");
-  const [savedId, setSavedId] = useState("");
-  const [message, setMessage] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
-  const saveTimers = useRef({});
-  const savedTimers = useRef({});
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
+  function showToast(text, type = "success") {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ text, type });
+    toastTimer.current = setTimeout(() => {
+      setToast(null);
+      toastTimer.current = null;
+    }, 3000);
+  }
 
   async function load() {
     setLoading(true);
@@ -35,47 +41,27 @@ export default function ProducerProductsPage() {
       .eq("is_active", true)
       .order("updated_at", { ascending: false });
 
-    setRows(data || []);
+    const list = data || [];
+    setRows(list);
+    setSavedMap(
+      Object.fromEntries(
+        list.map((r) => [r.id, Number(r.stock_quantity || 0)])
+      )
+    );
     setLoading(false);
   }
 
   useEffect(() => {
     load();
     return () => {
-      Object.values(saveTimers.current).forEach(clearTimeout);
-      Object.values(savedTimers.current).forEach(clearTimeout);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, []);
 
-  async function persistStock(id, quantity) {
-    setSavingId(id);
-    setSavedId("");
-    setMessage("");
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("producer_products")
-      .update({
-        stock_quantity: Math.max(0, Number(quantity || 0)),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id);
-    setSavingId("");
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-    setSavedId(id);
-    if (savedTimers.current[id]) clearTimeout(savedTimers.current[id]);
-    savedTimers.current[id] = setTimeout(() => {
-      setSavedId((current) => (current === id ? "" : current));
-    }, 1500);
-  }
-
-  function scheduleSave(id, quantity) {
-    if (saveTimers.current[id]) clearTimeout(saveTimers.current[id]);
-    saveTimers.current[id] = setTimeout(() => {
-      persistStock(id, quantity);
-    }, SAVE_DELAY_MS);
+  function isDirty(row) {
+    const current = Number(row.stock_quantity || 0);
+    const saved = Number(savedMap[row.id] ?? 0);
+    return current !== saved;
   }
 
   function updateStock(id, value) {
@@ -83,16 +69,43 @@ export default function ProducerProductsPage() {
     setRows((prev) =>
       prev.map((r) => (r.id === id ? { ...r, stock_quantity: next } : r))
     );
-    scheduleSave(id, next);
   }
 
   function onStockInput(id, raw) {
-    setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, stock_quantity: raw } : r))
-    );
-    const parsed = raw === "" ? 0 : Number(raw);
+    if (raw === "") {
+      setRows((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, stock_quantity: "" } : r))
+      );
+      return;
+    }
+    const parsed = Number(raw);
     if (Number.isNaN(parsed)) return;
-    scheduleSave(id, Math.max(0, parsed));
+    updateStock(id, Math.max(0, parsed));
+  }
+
+  async function saveStock(row) {
+    const quantity = Math.max(0, Number(row.stock_quantity || 0));
+    setSavingId(row.id);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("producer_products")
+      .update({
+        stock_quantity: quantity,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", row.id);
+    setSavingId("");
+    if (error) {
+      showToast(error.message, "error");
+      return;
+    }
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === row.id ? { ...r, stock_quantity: quantity } : r
+      )
+    );
+    setSavedMap((prev) => ({ ...prev, [row.id]: quantity }));
+    showToast("Stok güncellendi");
   }
 
   const totalStock = rows.reduce(
@@ -112,10 +125,6 @@ export default function ProducerProductsPage() {
         <p className="text-3xl font-bold">{totalStock} adet</p>
       </div>
 
-      {message ? (
-        <p className="text-sm text-rose-600">{message}</p>
-      ) : null}
-
       {loading ? (
         <p className="text-lg text-zinc-500">Yükleniyor...</p>
       ) : rows.length === 0 ? (
@@ -124,99 +133,116 @@ export default function ProducerProductsPage() {
         </p>
       ) : (
         <div className="space-y-3">
-          {rows.map((row) => (
-            <div
-              key={row.id}
-              className="rounded-2xl border border-zinc-200 bg-white p-4"
-            >
-              <div className="flex items-start gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (row.products?.image_url) {
-                      setPreviewUrl(row.products.image_url);
-                    }
-                  }}
-                  className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-zinc-100"
-                  aria-label="Ürün görselini büyüt"
-                >
-                  {row.products?.image_url ? (
-                    <Image
-                      src={row.products.image_url}
-                      alt={row.products.title || "Ürün"}
-                      fill
-                      className="object-cover"
-                      sizes="80px"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-zinc-400">
-                      Yok
-                    </div>
-                  )}
-                </button>
+          {rows.map((row) => {
+            const dirty = isDirty(row);
+            return (
+              <div
+                key={row.id}
+                className="rounded-2xl border border-zinc-200 bg-white p-4"
+              >
+                <div className="flex items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (row.products?.image_url) {
+                        setPreviewUrl(row.products.image_url);
+                      }
+                    }}
+                    className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-zinc-100"
+                    aria-label="Ürün görselini büyüt"
+                  >
+                    {row.products?.image_url ? (
+                      <Image
+                        src={row.products.image_url}
+                        alt={row.products.title || "Ürün"}
+                        fill
+                        className="object-cover"
+                        sizes="80px"
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-xs text-zinc-400">
+                        Yok
+                      </div>
+                    )}
+                  </button>
 
-                <div className="min-w-0 flex-1">
-                  <p className="text-base font-semibold leading-snug text-zinc-900">
-                    {row.products?.title || "Ürün"}
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-500">
-                    {row.products?.brand_name || "Ontic"}
-                  </p>
-                  {row.products?.description ? (
-                    <p className="mt-2 text-sm leading-relaxed text-zinc-600">
-                      {truncate(row.products.description, 140)}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-base font-semibold leading-snug text-zinc-900">
+                      {row.products?.title || "Ürün"}
                     </p>
-                  ) : null}
+                    <p className="mt-1 text-sm text-zinc-500">
+                      {row.products?.brand_name || "Ontic"}
+                    </p>
+                    {row.products?.description ? (
+                      <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                        {truncate(row.products.description, 140)}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4">
-                <div className="mr-auto flex min-w-0 items-center gap-2">
+                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4">
                   <span className="text-sm font-medium text-zinc-500">Stok</span>
-                  {savingId === row.id ? (
-                    <span className="text-xs text-zinc-400">Kaydediliyor...</span>
-                  ) : savedId === row.id ? (
-                    <span className="text-xs font-medium text-emerald-600">
-                      Kaydedildi
-                    </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateStock(
+                        row.id,
+                        Math.max(0, Number(row.stock_quantity || 0) - 1)
+                      )
+                    }
+                    className="h-11 w-11 rounded-xl border border-zinc-300 text-lg font-semibold"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    value={row.stock_quantity}
+                    onChange={(e) => onStockInput(row.id, e.target.value)}
+                    className="h-11 w-20 rounded-xl border border-zinc-300 text-center text-base font-semibold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateStock(row.id, Number(row.stock_quantity || 0) + 1)
+                    }
+                    className="h-11 w-11 rounded-xl border border-zinc-300 text-lg font-semibold"
+                  >
+                    +
+                  </button>
+                  {dirty ? (
+                    <button
+                      type="button"
+                      disabled={savingId === row.id}
+                      onClick={() => saveStock(row)}
+                      className="h-11 rounded-xl bg-zinc-900 px-4 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {savingId === row.id ? "Kaydediliyor..." : "Kaydet"}
+                    </button>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    updateStock(
-                      row.id,
-                      Math.max(0, Number(row.stock_quantity || 0) - 1)
-                    )
-                  }
-                  className="h-11 w-11 rounded-xl border border-zinc-300 text-lg font-semibold"
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  min="0"
-                  inputMode="numeric"
-                  value={row.stock_quantity}
-                  onChange={(e) => onStockInput(row.id, e.target.value)}
-                  className="h-11 w-20 rounded-xl border border-zinc-300 text-center text-base font-semibold"
-                />
-                <button
-                  type="button"
-                  onClick={() =>
-                    updateStock(row.id, Number(row.stock_quantity || 0) + 1)
-                  }
-                  className="h-11 w-11 rounded-xl border border-zinc-300 text-lg font-semibold"
-                >
-                  +
-                </button>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       <ImageLightbox src={previewUrl} onClose={() => setPreviewUrl("")} />
+
+      {toast ? (
+        <div
+          className={`fixed bottom-24 left-1/2 z-[60] w-[min(24rem,calc(100%-2rem))] -translate-x-1/2 rounded-2xl px-4 py-3 text-center text-sm font-medium shadow-lg sm:bottom-6 ${
+            toast.type === "error"
+              ? "bg-rose-600 text-white"
+              : "bg-zinc-900 text-white"
+          }`}
+          role="status"
+        >
+          {toast.text}
+        </div>
+      ) : null}
     </div>
   );
 }

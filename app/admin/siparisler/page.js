@@ -63,11 +63,19 @@ export default function AdminOrdersPage() {
     const supabase = createClient();
     const { data } = await supabase
       .from("trendyol_orders")
-      .select("*")
+      .select("*, producer_orders(id, status)")
       .order("order_date", { ascending: false })
       .limit(200);
     setOrders(data || []);
     setLoading(false);
+  }
+
+  function needsRejectionWarning(order) {
+    const awaiting =
+      order.internal_status === "pending_assignment" ||
+      order.internal_status === "partially_assigned";
+    if (!awaiting) return false;
+    return (order.producer_orders || []).some((po) => po.status === "rejected");
   }
 
   async function loadProducts() {
@@ -314,14 +322,21 @@ export default function AdminOrdersPage() {
                       {order.status || "-"}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                          order.internal_status
-                        )}`}
-                      >
-                        {INTERNAL_ORDER_STATUS[order.internal_status] ||
-                          order.internal_status}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
+                            order.internal_status
+                          )}`}
+                        >
+                          {INTERNAL_ORDER_STATUS[order.internal_status] ||
+                            order.internal_status}
+                        </span>
+                        {needsRejectionWarning(order) ? (
+                          <span className="rounded-full bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white">
+                            RET
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}

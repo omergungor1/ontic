@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import ImageLightbox from "@/components/ImageLightbox";
+import BackButton from "@/components/BackButton";
 import {
   formatDate,
   formatPrice,
@@ -26,6 +27,7 @@ function producerStatusClass(status) {
     case "completed":
       return "bg-emerald-100 text-emerald-700";
     case "cancelled":
+    case "rejected":
       return "bg-rose-100 text-rose-700";
     default:
       return "bg-zinc-100 text-zinc-600";
@@ -358,6 +360,16 @@ export default function AdminOrderDetailPage() {
 
   async function uploadCargoForProducerOrder(producerOrderId, file) {
     if (!file || !producerOrderId) return;
+
+    const type = String(file.type || "").toLowerCase();
+    const name = String(file.name || "").toLowerCase();
+    const isPdf = type === "application/pdf" || name.endsWith(".pdf");
+    const isImage = type.startsWith("image/");
+    if (!isPdf && !isImage) {
+      setError("Kargo kodu için görsel veya PDF yükleyin");
+      return;
+    }
+
     setCargoUploadingId(producerOrderId);
     setError("");
     setMessage("");
@@ -380,7 +392,7 @@ export default function AdminOrderDetailPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Kargo kodu kaydedilemedi");
 
-      setMessage("Kargo kodu yüklendi");
+      setMessage(isPdf ? "Kargo PDF yüklendi" : "Kargo kodu yüklendi");
       await load({ silent: true });
     } catch (err) {
       setError(err.message || "Kargo kodu yüklenemedi");
@@ -418,11 +430,9 @@ export default function AdminOrderDetailPage() {
   if (loading) return <p>Yükleniyor...</p>;
   if (!order)
     return (
-      <div>
+      <div className="space-y-3">
+        <BackButton href="/admin/siparisler" label="Siparişlere dön" />
         <p>Sipariş bulunamadı.</p>
-        <Link href="/admin/siparisler" className="text-orange-600">
-          Siparişlere dön
-        </Link>
       </div>
     );
 
@@ -433,13 +443,11 @@ export default function AdminOrderDetailPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <button
-            type="button"
+          <BackButton
             onClick={() => router.push("/admin/siparisler")}
-            className="mb-2 text-sm text-zinc-500 hover:text-zinc-800"
-          >
-            ← Siparişlere dön
-          </button>
+            label="Siparişlere dön"
+            className="mb-3"
+          />
           <h1 className="text-2xl font-semibold">
             Sipariş {order.order_number}
           </h1>
@@ -456,11 +464,10 @@ export default function AdminOrderDetailPage() {
           <button
             type="button"
             onClick={toggleOrderCancel}
-            className={`rounded-xl px-4 py-2 text-sm font-medium ${
-              orderCancelled
+            className={`rounded-xl px-4 py-2 text-sm font-medium ${orderCancelled
                 ? "bg-emerald-600 text-white"
                 : "bg-rose-600 text-white"
-            }`}
+              }`}
           >
             {orderCancelled ? "İptali Geri Al" : "Siparişi İptal Et"}
           </button>
@@ -537,11 +544,10 @@ export default function AdminOrderDetailPage() {
                   </p>
                 </div>
                 <span
-                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
-                    remaining > 0
+                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${remaining > 0
                       ? "bg-amber-100 text-amber-700"
                       : "bg-emerald-100 text-emerald-700"
-                  }`}
+                    }`}
                 >
                   {remaining > 0 ? `Kalan ${remaining}` : "Tamamen dağıtıldı"}
                 </span>
@@ -612,7 +618,7 @@ export default function AdminOrderDetailPage() {
                     >
                       {PRODUCER_ORDER_STATUS[po.status] || po.status}
                     </span>
-                    {po.status !== "cancelled" ? (
+                    {po.status !== "cancelled" && po.status !== "rejected" ? (
                       <button
                         type="button"
                         onClick={() => cancelProducerOrder(po.id)}
@@ -644,7 +650,7 @@ export default function AdminOrderDetailPage() {
 
                 <div className="mt-3 space-y-2 border-t border-zinc-100 pt-3">
                   <p className="text-xs font-medium text-zinc-500">
-                    Kargo kodu
+                    Kargo kodu (görsel veya PDF)
                   </p>
                   {po.cargo_image_url ? (
                     <button
@@ -664,7 +670,7 @@ export default function AdminOrderDetailPage() {
                       if (el) cargoFileRefs.current[po.id] = el;
                     }}
                     type="file"
-                    accept="image/*"
+                    accept="image/*,application/pdf,.pdf"
                     className="hidden"
                     onChange={(e) =>
                       uploadCargoForProducerOrder(po.id, e.target.files?.[0])
@@ -673,7 +679,9 @@ export default function AdminOrderDetailPage() {
                   <button
                     type="button"
                     disabled={
-                      cargoUploadingId === po.id || po.status === "cancelled"
+                      cargoUploadingId === po.id ||
+                      po.status === "cancelled" ||
+                      po.status === "rejected"
                     }
                     onClick={() => cargoFileRefs.current[po.id]?.click()}
                     className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm font-medium disabled:opacity-50"
@@ -749,8 +757,17 @@ export default function AdminOrderDetailPage() {
                           <p className="text-sm font-medium leading-snug">
                             {item.product_name || item.products?.title || "Ürün"}
                           </p>
-                          <p className="text-xs text-zinc-500">
-                            Kalan {remaining} adet
+                          <div className="mt-2 inline-flex items-baseline gap-1.5 rounded-lg bg-amber-100 px-2.5 py-1 text-amber-900">
+                            <span className="text-lg font-bold tabular-nums leading-none">
+                              {remaining}
+                            </span>
+                            <span className="text-xs font-semibold">
+                              adet kaldı
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[11px] text-zinc-500">
+                            Toplam sipariş: {item.quantity} · Atanan:{" "}
+                            {Number(item.assigned_quantity || 0)}
                           </p>
                         </div>
                       </div>
@@ -904,8 +921,8 @@ export default function AdminOrderDetailPage() {
                                 {formatPrice(
                                   Number(
                                     line.unitEarning ||
-                                      productUnitEarning(item) ||
-                                      0
+                                    productUnitEarning(item) ||
+                                    0
                                   )
                                 )}
                                 <span className="ml-2 text-xs font-normal text-zinc-500">
@@ -934,12 +951,17 @@ export default function AdminOrderDetailPage() {
             </div>
 
             <div className="shrink-0 border-t border-zinc-100 px-4 py-4 sm:px-5">
-              <p className="mb-3 text-sm text-zinc-600">
-                Seçilen adet:{" "}
-                <span className="font-semibold text-zinc-900">
-                  {draftTotalQty}
+              <div className="mb-3 flex items-center justify-between rounded-xl bg-zinc-100 px-3.5 py-3">
+                <span className="text-sm font-medium text-zinc-600">
+                  Bu dağıtıma seçilen
                 </span>
-              </p>
+                <span className="text-xl font-bold tabular-nums text-zinc-900">
+                  {draftTotalQty}{" "}
+                  <span className="text-sm font-semibold text-zinc-500">
+                    adet
+                  </span>
+                </span>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"

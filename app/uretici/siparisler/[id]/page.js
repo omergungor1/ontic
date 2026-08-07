@@ -28,6 +28,7 @@ export default function ProducerOrderDetailPage() {
   const [updating, setUpdating] = useState(false);
   const [message, setMessage] = useState("");
   const [cargoPreviewOpen, setCargoPreviewOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
 
   async function load() {
     if (!orderId) return;
@@ -69,6 +70,27 @@ export default function ProducerOrderDetailPage() {
     }
   }
 
+  async function rejectOrder() {
+    setUpdating(true);
+    setMessage("");
+    try {
+      const res = await fetch(`/api/producer-orders/${orderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "rejected" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Reddedilemedi");
+      setRejectOpen(false);
+      await load();
+    } catch (err) {
+      setMessage(err.message);
+      setRejectOpen(false);
+    } finally {
+      setUpdating(false);
+    }
+  }
+
   if (loading) return <p className="text-lg text-zinc-500">Yükleniyor...</p>;
   if (!order)
     return (
@@ -93,9 +115,23 @@ export default function ProducerOrderDetailPage() {
       <button
         type="button"
         onClick={() => router.push("/uretici/siparisler")}
-        className="text-sm text-zinc-500"
+        aria-label="Siparişlerime dön"
+        className="flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 shadow-sm active:bg-zinc-50"
       >
-        ← Siparişlerime dön
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          strokeWidth="2"
+          className="h-5 w-5"
+          aria-hidden="true"
+        >
+          <path
+            d="M15 18l-6-6 6-6"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </button>
 
       <div>
@@ -109,47 +145,86 @@ export default function ProducerOrderDetailPage() {
         </p>
       </div>
 
-      <div className="rounded-2xl bg-emerald-600 px-5 py-4 text-white">
-        <p className="text-sm opacity-90">Bu siparişten kazancınız</p>
-        <p className="text-3xl font-bold">{formatPrice(order.producer_earning)}</p>
-      </div>
+      {order.status === "cancelled" || order.status === "rejected" ? (
+        <div className="rounded-2xl bg-rose-50 px-5 py-4 text-center">
+          <p className="text-base font-semibold text-rose-700">
+            {order.status === "rejected"
+              ? "Bu siparişi reddettiniz"
+              : "Bu sipariş iptal edildi"}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-2xl bg-emerald-600 px-5 py-4 text-white">
+          <p className="text-sm opacity-90">Bu siparişten kazancınız</p>
+          <p className="text-3xl font-bold">
+            {formatPrice(order.producer_earning)}
+          </p>
+        </div>
+      )}
 
       <div className="space-y-3">
         <h2 className="text-lg font-semibold">Ürünler</h2>
         {items.map((item) => {
-          const shortage =
-            Number(item.stock_at_assignment) < Number(item.quantity);
+          const qty = Number(item.quantity || 0);
+          const stockAtAssign = Number(item.stock_at_assignment ?? 0);
+          const shortage = stockAtAssign < qty;
+          const missing = Math.max(0, qty - stockAtAssign);
           return (
             <div
               key={item.id}
-              className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white p-4"
+              className={`rounded-2xl border bg-white p-4 ${
+                shortage ? "border-rose-200" : "border-zinc-200"
+              }`}
             >
-              <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
-                {item.products?.image_url ? (
-                  <Image
-                    src={item.products.image_url}
-                    alt={item.products.title}
-                    fill
-                    className="object-cover"
-                    sizes="56px"
-                  />
-                ) : null}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-base font-medium">
-                  {item.products?.title || "Ürün"}
-                </p>
-                <p className="text-sm text-zinc-500">{item.quantity} adet</p>
-                {shortage ? (
-                  <p className="text-sm font-medium text-rose-600">
-                    ⚠ {Number(item.quantity) - Number(item.stock_at_assignment)}{" "}
-                    adet stok eksik
+              <div className="flex items-start gap-3">
+                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
+                  {item.products?.image_url ? (
+                    <Image
+                      src={item.products.image_url}
+                      alt={item.products.title}
+                      fill
+                      className="object-cover"
+                      sizes="56px"
+                    />
+                  ) : null}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-medium leading-snug">
+                    {item.products?.title || "Ürün"}
                   </p>
-                ) : null}
+                  <p className="mt-1 text-lg font-bold text-zinc-900">
+                    {qty}{" "}
+                    <span className="text-sm font-medium text-zinc-500">
+                      adet sipariş
+                    </span>
+                  </p>
+                </div>
+                <p className="shrink-0 text-base font-semibold">
+                  {formatPrice(item.unit_earning * qty)}
+                </p>
               </div>
-              <p className="font-semibold">
-                {formatPrice(item.unit_earning * item.quantity)}
-              </p>
+
+              <div
+                className={`mt-3 rounded-xl px-3 py-2.5 ${
+                  shortage
+                    ? "bg-rose-50 text-rose-800"
+                    : "bg-emerald-50 text-emerald-800"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="font-medium">Atama anındaki stok</span>
+                  <span className="font-bold tabular-nums">{stockAtAssign} adet</span>
+                </div>
+                {shortage ? (
+                  <p className="mt-1.5 text-sm font-semibold">
+                    {missing} adet eksik — stoğunuzu tamamlayın
+                  </p>
+                ) : (
+                  <p className="mt-1.5 text-sm font-medium">
+                    Stok sipariş için yeterli
+                  </p>
+                )}
+              </div>
             </div>
           );
         })}
@@ -167,7 +242,7 @@ export default function ProducerOrderDetailPage() {
           </button>
         ) : (
           <p className="mt-2 text-sm text-zinc-500">
-            Yönetici henüz kargo kodu yüklemedi
+            Yönetici henüz kargo kodu (görsel/PDF) yüklemedi
           </p>
         )}
       </div>
@@ -186,17 +261,33 @@ export default function ProducerOrderDetailPage() {
       </div>
 
       {nextStatus ? (
-        <button
-          type="button"
-          disabled={updating}
-          onClick={() => updateStatus(nextStatus)}
-          className="w-full rounded-2xl bg-orange-600 py-4 text-lg font-semibold text-white disabled:opacity-60"
-        >
-          {updating ? "Güncelleniyor..." : NEXT_ACTION_LABEL[order.status]}
-        </button>
+        <div className="space-y-3">
+          <button
+            type="button"
+            disabled={updating}
+            onClick={() => updateStatus(nextStatus)}
+            className="w-full rounded-2xl bg-orange-600 py-4 text-lg font-semibold text-white disabled:opacity-60"
+          >
+            {updating ? "Güncelleniyor..." : NEXT_ACTION_LABEL[order.status]}
+          </button>
+          {order.status === "created" ? (
+            <button
+              type="button"
+              disabled={updating}
+              onClick={() => setRejectOpen(true)}
+              className="w-full rounded-2xl border border-rose-200 bg-rose-50 py-4 text-lg font-semibold text-rose-700 disabled:opacity-60"
+            >
+              Siparişi Reddet
+            </button>
+          ) : null}
+        </div>
       ) : order.status === "cancelled" ? (
         <p className="rounded-2xl bg-rose-50 py-3 text-center text-base font-medium text-rose-700">
           Bu sipariş iptal edildi
+        </p>
+      ) : order.status === "rejected" ? (
+        <p className="rounded-2xl bg-rose-50 py-3 text-center text-base font-medium text-rose-700">
+          Bu siparişi reddettiniz
         </p>
       ) : isFinished ? (
         <p className="rounded-2xl bg-emerald-50 py-3 text-center text-base font-medium text-emerald-700">
@@ -209,6 +300,46 @@ export default function ProducerOrderDetailPage() {
         alt="Kargo kodu"
         onClose={() => setCargoPreviewOpen(false)}
       />
+
+      {rejectOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reject-order-title"
+          >
+            <h3
+              id="reject-order-title"
+              className="text-lg font-semibold text-zinc-900"
+            >
+              Siparişi reddetmek istiyor musunuz?
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+              Bu sipariş sizden alınır ve başka bir üreticiye yeniden
+              dağıtılabilir.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                disabled={updating}
+                onClick={() => setRejectOpen(false)}
+                className="flex-1 rounded-xl border border-zinc-300 py-2.5 text-sm font-medium disabled:opacity-60"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={updating}
+                onClick={rejectOrder}
+                className="flex-1 rounded-xl bg-rose-600 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              >
+                {updating ? "Reddediliyor..." : "Evet, reddet"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -38,7 +38,7 @@ export default function AdminHomePage() {
         supabase
           .from("producer_orders")
           .select("*", { count: "exact", head: true })
-          .not("status", "in", '("completed","cancelled")'),
+          .not("status", "in", '("completed","cancelled","rejected")'),
       ]);
 
       setStats({

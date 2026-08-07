@@ -52,7 +52,7 @@ export default function ProducerPaymentsPage() {
             .from("producer_orders")
             .select("id, created_at, producer_earning")
             .eq("producer_id", uid)
-            .neq("status", "cancelled")
+            .not("status", "in", '("cancelled","rejected")')
             .order("created_at", { ascending: false })
             .range(salesFrom, salesFrom + PAGE_SIZE - 1)
         : Promise.resolve({ data: [] }),
@@ -106,7 +106,7 @@ export default function ProducerPaymentsPage() {
           .from("producer_orders")
           .select("producer_earning")
           .eq("producer_id", user.id)
-          .neq("status", "cancelled"),
+          .not("status", "in", '("cancelled","rejected")'),
         supabase
           .from("payments")
           .select("amount")

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import AnnouncementSlider from "@/components/AnnouncementSlider";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
@@ -26,6 +27,7 @@ export default function ProducerHomePage() {
   const pathname = usePathname();
   const [loading, setLoading] = useState(true);
   const [activeOrders, setActiveOrders] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
   const [totalStock, setTotalStock] = useState(0);
   const [remainingPayment, setRemainingPayment] = useState(0);
   const [fullName, setFullName] = useState("");
@@ -51,13 +53,21 @@ export default function ProducerHomePage() {
         .maybeSingle();
       setFullName(profile?.full_name || "");
 
+      const { data: announcementRows } = await supabase
+        .from("announcements")
+        .select("id, title, description, image_url")
+        .is("deleted_at", null)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: false });
+
       const { data: orders } = await supabase
         .from("producer_orders")
         .select(
           "*, producer_order_items(*, products!product_id(title)), trendyol_orders!trendyol_order_id(order_number, customer_first_name, customer_last_name)"
         )
         .eq("producer_id", user.id)
-        .not("status", "in", '("completed","cancelled","shipped")')
+        .not("status", "in", '("completed","cancelled","rejected","shipped")')
         .order("created_at", { ascending: false });
 
       const { data: stockRows } = await supabase
@@ -75,7 +85,7 @@ export default function ProducerHomePage() {
         .from("producer_orders")
         .select("producer_earning")
         .eq("producer_id", user.id)
-        .neq("status", "cancelled");
+        .not("status", "in", '("cancelled","rejected")');
 
       const { data: paymentRows } = await supabase
         .from("payments")
@@ -91,6 +101,7 @@ export default function ProducerHomePage() {
         0
       );
 
+      setAnnouncements(announcementRows || []);
       setActiveOrders(orders || []);
       setTotalStock(stockSum);
       setRemainingPayment(totalEarned - totalPaid);
@@ -107,6 +118,8 @@ export default function ProducerHomePage() {
         <h1 className="text-2xl font-semibold">Merhaba{fullName ? `, ${fullName}` : ""} 👋</h1>
         <p className="text-zinc-500">Ontic üretici paneline hoş geldiniz</p>
       </div>
+
+      <AnnouncementSlider items={announcements} />
 
       {unreadCount > 0 ? (
         <Link

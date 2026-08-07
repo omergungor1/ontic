@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ImageLightbox from "@/components/ImageLightbox";
+import BackButton from "@/components/BackButton";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
 
@@ -354,14 +355,11 @@ export default function AdminMessagesPage() {
         ) : (
           <>
             <div className="flex shrink-0 items-center gap-2 border-b border-zinc-100 px-3 py-3">
-              <button
-                type="button"
+              <BackButton
                 onClick={closeConversation}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-200 text-lg text-zinc-600 lg:hidden"
-                aria-label="Listeye dön"
-              >
-                ←
-              </button>
+                label="Listeye dön"
+                className="lg:hidden"
+              />
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-sm font-semibold text-zinc-600">
                 {selected.profiles?.full_name?.[0]?.toUpperCase() || "?"}
               </div>
@@ -445,7 +443,8 @@ export default function AdminMessagesPage() {
                 type="button"
                 disabled={uploading}
                 onClick={() => fileInputRef.current?.click()}
-                className="rounded-full border border-zinc-300 p-2.5 text-lg"
+                aria-label="Görsel gönder"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-zinc-300 text-lg disabled:opacity-60"
                 title="Görsel gönder"
               >
                 {uploading ? "..." : "+"}
@@ -454,14 +453,37 @@ export default function AdminMessagesPage() {
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Mesaj yazın..."
-                className="min-w-0 flex-1 select-text rounded-full border border-zinc-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500"
+                className="min-w-0 flex-1 select-text rounded-full border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500 sm:px-4"
               />
               <button
                 type="submit"
                 disabled={sending || !text.trim()}
-                className="shrink-0 rounded-full bg-orange-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+                aria-label="Gönder"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-600 text-white disabled:opacity-60 sm:w-auto sm:gap-2 sm:px-4"
               >
-                Gönder
+                {sending ? (
+                  <span className="text-xs font-medium sm:text-sm">...</span>
+                ) : (
+                  <>
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      strokeWidth="2"
+                      className="h-5 w-5"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <span className="hidden text-sm font-medium sm:inline">
+                      Gönder
+                    </span>
+                  </>
+                )}
               </button>
             </form>
           </>

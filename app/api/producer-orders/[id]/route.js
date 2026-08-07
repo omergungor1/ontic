@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { releaseProducerOrder } from "@/lib/producer-orders";
 
 export async function PATCH(request, { params }) {
   try {
@@ -15,7 +16,7 @@ export async function PATCH(request, { params }) {
 
     const { data: order } = await admin
       .from("producer_orders")
-      .select("*")
+      .select("*, producer_order_items(*)")
       .eq("id", id)
       .single();
 
@@ -27,6 +28,24 @@ export async function PATCH(request, { params }) {
     const isAdmin = current.profile.role === "admin";
     if (!isOwner && !isAdmin) {
       return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
+    }
+
+    // Üretici reddi: yalnızca sahibi ve henüz onaylanmamış sipariş
+    if (body.status === "rejected") {
+      if (!isOwner) {
+        return NextResponse.json(
+          { error: "Siparişi yalnızca üretici reddedebilir" },
+          { status: 403 }
+        );
+      }
+      if (order.status !== "created") {
+        return NextResponse.json(
+          { error: "Yalnızca onay bekleyen sipariş reddedilebilir" },
+          { status: 400 }
+        );
+      }
+      await releaseProducerOrder(admin, order, "rejected");
+      return NextResponse.json({ ok: true });
     }
 
     const updates = {

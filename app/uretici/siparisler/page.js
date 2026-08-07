@@ -20,6 +20,7 @@ function statusClass(status) {
     case "completed":
       return "bg-emerald-100 text-emerald-700";
     case "cancelled":
+    case "rejected":
       return "bg-rose-100 text-rose-700";
     default:
       return "bg-zinc-100 text-zinc-600";
@@ -141,14 +142,17 @@ export default function ProducerOrdersPage() {
       ) : (
         <div className="space-y-3">
           {orders.map((order) => {
-            const shortageLines = (order.producer_order_items || []).filter(
+            const lines = order.producer_order_items || [];
+            const shortageCount = lines.filter(
               (i) => Number(i.stock_at_assignment) < Number(i.quantity)
-            );
+            ).length;
             return (
               <Link
                 key={order.id}
                 href={`/uretici/siparisler/${order.id}`}
-                className="block rounded-2xl border border-zinc-200 bg-white p-4"
+                className={`block rounded-2xl border bg-white p-4 ${
+                  shortageCount > 0 ? "border-rose-200" : "border-zinc-200"
+                }`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className="font-semibold">
@@ -162,25 +166,57 @@ export default function ProducerOrdersPage() {
                     {PRODUCER_ORDER_STATUS[order.status] || order.status}
                   </span>
                 </div>
-                <p className="mt-1 text-sm text-zinc-500">
-                  {(order.producer_order_items || [])
-                    .map((i) => `${i.products?.title || "Ürün"} × ${i.quantity}`)
-                    .join(", ")}
-                </p>
-                {shortageLines.length > 0 ? (
-                  <p className="mt-2 text-sm font-medium text-rose-600">
-                    ⚠ Stok eksik:{" "}
-                    {shortageLines
-                      .map(
-                        (i) =>
-                          `${i.products?.title || "Ürün"} (${
-                            Number(i.quantity) - Number(i.stock_at_assignment)
-                          } eksik)`
-                      )
-                      .join(", ")}
+
+                <ul className="mt-3 space-y-2">
+                  {lines.map((item) => {
+                    const qty = Number(item.quantity || 0);
+                    const stock = Number(item.stock_at_assignment ?? 0);
+                    const shortage = stock < qty;
+                    const missing = Math.max(0, qty - stock);
+                    return (
+                      <li
+                        key={item.id}
+                        className={`rounded-xl px-3 py-2.5 ${
+                          shortage ? "bg-rose-50" : "bg-zinc-50"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-zinc-800">
+                            {item.products?.title || "Ürün"}
+                          </p>
+                          <p className="shrink-0 text-base font-bold tabular-nums text-zinc-900">
+                            {qty}{" "}
+                            <span className="text-xs font-semibold text-zinc-500">
+                              adet
+                            </span>
+                          </p>
+                        </div>
+                        <div
+                          className={`mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium ${
+                            shortage ? "text-rose-700" : "text-emerald-700"
+                          }`}
+                        >
+                          <span>Stok: {stock} adet</span>
+                          {shortage ? (
+                            <span className="rounded-md bg-rose-100 px-1.5 py-0.5 font-semibold">
+                              {missing} eksik
+                            </span>
+                          ) : (
+                            <span>Yeterli</span>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {shortageCount > 0 ? (
+                  <p className="mt-2 text-sm font-semibold text-rose-700">
+                    {shortageCount} üründe stok eksik
                   </p>
                 ) : null}
-                <div className="mt-2 flex items-center justify-between text-sm">
+
+                <div className="mt-3 flex items-center justify-between text-sm">
                   <span className="text-zinc-400">
                     {formatDate(order.created_at)}
                   </span>

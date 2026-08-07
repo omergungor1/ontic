@@ -16,6 +16,7 @@ const LINKS = [
   { href: "/admin/stok", label: "Stok" },
   { href: "/admin/kasa", label: "Kasa" },
   { href: "/admin/mesajlar", label: "Mesajlar", badge: "messages" },
+  { href: "/admin/duyurular", label: "Duyurular" },
   { href: "/admin/basvurular", label: "Başvurular", badge: "applications" },
   { href: "/admin/iletisim", label: "İletişim Formu", badge: "contact" },
 ];
@@ -67,6 +68,8 @@ export default function AdminLayout({ children }) {
   const [pendingApps, setPendingApps] = useState(0);
   const [newContacts, setNewContacts] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const { hasUnread, unreadCount } = useUnreadMessages({
     role: "admin",
     clearOnPath: "/admin/mesajlar",
@@ -151,10 +154,17 @@ export default function AdminLayout({ children }) {
   }
 
   async function logout() {
+    setLoggingOut(true);
     setMenuOpen(false);
+    setLogoutOpen(false);
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/admin/giris");
+  }
+
+  function requestLogout() {
+    setMenuOpen(false);
+    setLogoutOpen(true);
   }
 
   function badgeCount(link) {
@@ -210,9 +220,23 @@ export default function AdminLayout({ children }) {
 
           <button
             type="button"
-            onClick={logout}
-            className="hidden rounded-lg px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-100 lg:inline-flex"
+            onClick={requestLogout}
+            className="hidden items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3.5 py-2 text-sm font-medium text-zinc-700 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 lg:inline-flex"
           >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              strokeWidth="2"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <path
+                d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
             Çıkış
           </button>
         </div>
@@ -292,13 +316,67 @@ export default function AdminLayout({ children }) {
             <div className="border-t border-zinc-100 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
               <button
                 type="button"
-                onClick={logout}
-                className="w-full rounded-xl border border-zinc-300 bg-white py-3 text-sm font-semibold text-zinc-700"
+                onClick={requestLogout}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 py-3 text-sm font-semibold text-rose-700"
               >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  strokeWidth="2"
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
                 Çıkış Yap
               </button>
             </div>
           </aside>
+        </div>
+      ) : null}
+
+      {logoutOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-logout-title"
+          >
+            <h3
+              id="admin-logout-title"
+              className="text-lg font-semibold text-zinc-900"
+            >
+              Çıkış yapmak istiyor musunuz?
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+              Yönetici panelinden çıkış yapılacak. Tekrar giriş yapmanız
+              gerekecek.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={() => setLogoutOpen(false)}
+                className="flex-1 rounded-xl border border-zinc-300 py-2.5 text-sm font-medium disabled:opacity-60"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={loggingOut}
+                onClick={logout}
+                className="flex-1 rounded-xl bg-rose-600 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              >
+                {loggingOut ? "Çıkış yapılıyor..." : "Evet, çıkış yap"}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
