@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  calculateOrdersNetProfit,
+  getStoreFinancialSettings,
+  roundMoney,
+} from "@/lib/net-profit";
 
 export async function GET(request) {
   try {
@@ -23,18 +28,71 @@ export async function GET(request) {
     const { data: payments, error } = await paymentsQuery;
     if (error) throw error;
 
-    let ordersQuery = admin
-      .from("trendyol_orders")
-      .select("id, order_number, net_amount, gross_amount, order_date, internal_status")
-      .neq("internal_status", "cancelled")
-      .order("order_date", { ascending: false });
+    let producerOrdersQuery = admin
+      .from("producer_orders")
+      .select(
+        "id, producer_id, producer_earning, status, created_at, trendyol_order_id, trendyol_orders!trendyol_order_id(order_number), profiles:producer_id(full_name, username)"
+      )
+      .not("status", "in", '("cancelled","rejected")')
+      .order("created_at", { ascending: false });
 
-    if (from) ordersQuery = ordersQuery.gte("order_date", from);
-    if (to) ordersQuery = ordersQuery.lte("order_date", to);
+    if (from) producerOrdersQuery = producerOrdersQuery.gte("created_at", from);
+    if (to) producerOrdersQuery = producerOrdersQuery.lte("created_at", to);
+    if (producerId) {
+      producerOrdersQuery = producerOrdersQuery.eq("producer_id", producerId);
+    }
 
-    const { data: orders } = await ordersQuery;
+    const { data: producerOrders, error: poError } = await producerOrdersQuery;
+    if (poError) throw poError;
 
-    const income = (orders || []).reduce(
+    let orders = [];
+    if (producerId) {
+      const orderIds = [
+        ...new Set(
+          (producerOrders || [])
+            .map((po) => po.trendyol_order_id)
+            .filter(Boolean)
+        ),
+      ];
+      if (orderIds.length) {
+        const { data } = await admin
+          .from("trendyol_orders")
+          .select(
+            "id, order_number, net_amount, gross_amount, total_price, commission_amount, order_date, internal_status, customer_first_name, customer_last_name"
+          )
+          .in("id", orderIds)
+          .neq("internal_status", "cancelled")
+          .order("order_date", { ascending: false });
+        orders = data || [];
+      }
+    } else {
+      let ordersQuery = admin
+        .from("trendyol_orders")
+        .select(
+          "id, order_number, net_amount, gross_amount, total_price, commission_amount, order_date, internal_status, customer_first_name, customer_last_name"
+        )
+        .neq("internal_status", "cancelled")
+        .order("order_date", { ascending: false });
+      if (from) ordersQuery = ordersQuery.gte("order_date", from);
+      if (to) ordersQuery = ordersQuery.lte("order_date", to);
+      const { data } = await ordersQuery;
+      orders = data || [];
+    }
+
+    const settings = await getStoreFinancialSettings(admin);
+    const profitRows = await calculateOrdersNetProfit(
+      admin,
+      orders.map((o) => o.id),
+      settings
+    );
+    const profitById = new Map(profitRows.map((row) => [row.orderId, row]));
+
+    const ordersWithProfit = orders.map((order) => ({
+      ...order,
+      profit: profitById.get(order.id) || null,
+    }));
+
+    const income = orders.reduce(
       (sum, row) => sum + Number(row.net_amount || 0),
       0
     );
@@ -42,14 +100,25 @@ export async function GET(request) {
       (sum, row) => sum + Number(row.amount || 0),
       0
     );
+    const producerEarnings = (producerOrders || []).reduce(
+      (sum, row) => sum + Number(row.producer_earning || 0),
+      0
+    );
+    const netProfit = roundMoney(
+      profitRows.reduce((sum, row) => sum + Number(row.netProfit || 0), 0)
+    );
 
     return NextResponse.json({
       payments: payments || [],
-      orders: orders || [],
+      producerOrders: producerOrders || [],
+      orders: ordersWithProfit,
+      settings,
       summary: {
-        income,
-        expense,
-        balance: income - expense,
+        income: roundMoney(income),
+        expense: roundMoney(expense),
+        producerEarnings: roundMoney(producerEarnings),
+        balance: roundMoney(income - expense),
+        netProfit,
       },
     });
   } catch (error) {

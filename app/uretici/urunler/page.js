@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import ImageLightbox from "@/components/ImageLightbox";
 import { createClient } from "@/lib/supabase/client";
-import { formatDate, truncate } from "@/lib/format";
+import { formatDate, formatPrice, truncate } from "@/lib/format";
 
 const REQUEST_STATUS = {
   pending: "Beklemede",
@@ -68,7 +68,7 @@ export default function ProducerProductsPage() {
     const { data } = await supabase
       .from("producer_products")
       .select(
-        "*, products!product_id(id, title, description, image_url, brand_name)"
+        "*, products!product_id(id, title, description, image_url, brand_name, producer_price)"
       )
       .eq("producer_id", user.id)
       .eq("is_active", true)
@@ -304,47 +304,59 @@ export default function ProducerProductsPage() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4">
-                  <span className="text-sm font-medium text-zinc-500">Stok</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateStock(
-                        row.id,
-                        Math.max(0, Number(row.stock_quantity || 0) - 1)
-                      )
-                    }
-                    className="h-11 w-11 rounded-xl border border-zinc-300 text-lg font-semibold"
-                  >
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    min="0"
-                    inputMode="numeric"
-                    value={row.stock_quantity}
-                    onChange={(e) => onStockInput(row.id, e.target.value)}
-                    className="h-11 w-20 rounded-xl border border-zinc-300 text-center text-base font-semibold"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateStock(row.id, Number(row.stock_quantity || 0) + 1)
-                    }
-                    className="h-11 w-11 rounded-xl border border-zinc-300 text-lg font-semibold"
-                  >
-                    +
-                  </button>
-                  {dirty ? (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 pt-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-zinc-500">
+                      Stok
+                    </span>
                     <button
                       type="button"
-                      disabled={savingId === row.id}
-                      onClick={() => saveStock(row)}
-                      className="h-11 rounded-xl bg-zinc-900 px-4 text-sm font-semibold text-white disabled:opacity-60"
+                      onClick={() =>
+                        updateStock(
+                          row.id,
+                          Math.max(0, Number(row.stock_quantity || 0) - 1)
+                        )
+                      }
+                      className="h-11 w-11 rounded-xl border border-zinc-300 text-lg font-semibold"
                     >
-                      {savingId === row.id ? "Kaydediliyor..." : "Kaydet"}
+                      −
                     </button>
-                  ) : null}
+                    <input
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={row.stock_quantity}
+                      onChange={(e) => onStockInput(row.id, e.target.value)}
+                      className="h-11 w-20 rounded-xl border border-zinc-300 text-center text-base font-semibold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateStock(row.id, Number(row.stock_quantity || 0) + 1)
+                      }
+                      className="h-11 w-11 rounded-xl border border-zinc-300 text-lg font-semibold"
+                    >
+                      +
+                    </button>
+                    {dirty ? (
+                      <button
+                        type="button"
+                        disabled={savingId === row.id}
+                        onClick={() => saveStock(row)}
+                        className="h-11 rounded-xl bg-zinc-900 px-4 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        {savingId === row.id ? "Kaydediliyor..." : "Kaydet"}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="ml-auto text-right">
+                    <p className="text-xs font-medium text-zinc-500">
+                      Üretici fiyatı
+                    </p>
+                    <p className="text-base font-bold text-emerald-700">
+                      {formatPrice(row.products?.producer_price)}
+                    </p>
+                  </div>
                 </div>
               </div>
             );
