@@ -1,7 +1,6 @@
 "use client";
 
-import Image from "next/image";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 function isPdfUrl(url) {
   if (!url) return false;
@@ -15,6 +14,11 @@ function isPdfUrl(url) {
 
 export default function ImageLightbox({ src, alt = "Görsel", onClose }) {
   const isPdf = isPdfUrl(src);
+  const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [src]);
 
   useEffect(() => {
     if (!src) return undefined;
@@ -53,7 +57,7 @@ export default function ImageLightbox({ src, alt = "Görsel", onClose }) {
       </button>
 
       <div
-        className="relative flex h-[85vh] w-full max-w-5xl flex-col"
+        className="flex max-h-[85vh] w-full max-w-5xl flex-col items-center justify-center"
         onClick={(e) => e.stopPropagation()}
       >
         {isPdf ? (
@@ -61,28 +65,50 @@ export default function ImageLightbox({ src, alt = "Görsel", onClose }) {
             <iframe
               src={src}
               title={alt || "PDF"}
-              className="h-full w-full flex-1 rounded-xl bg-white"
+              className="h-[75vh] w-full flex-1 rounded-xl bg-white"
             />
             <a
               href={src}
               target="_blank"
               rel="noreferrer"
-              className="mt-3 self-center rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/25"
+              className="mt-3 rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/25"
             >
               PDF&apos;i yeni sekmede aç
             </a>
           </>
+        ) : imageError ? (
+          <div className="flex flex-col items-center gap-4 px-4 text-center text-white">
+            <p className="text-sm text-white/80">
+              Görsel önizleme yüklenemedi
+            </p>
+            <a
+              href={src}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-zinc-900"
+            >
+              Görseli yeni sekmede aç
+            </a>
+          </div>
         ) : (
-          <div className="relative h-full w-full">
-            <Image
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src={src}
               alt={alt}
-              fill
-              className="object-contain"
-              sizes="100vw"
-              priority
+              decoding="async"
+              className="max-h-[80vh] w-auto max-w-full object-contain"
+              onError={() => setImageError(true)}
             />
-          </div>
+            <a
+              href={src}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 rounded-full bg-white/15 px-4 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/25"
+            >
+              Görseli yeni sekmede aç
+            </a>
+          </>
         )}
       </div>
     </div>
