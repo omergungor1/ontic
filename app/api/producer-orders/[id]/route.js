@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { releaseProducerOrder } from "@/lib/producer-orders";
+import { releaseProducerOrder, deductProducerStockOnShip } from "@/lib/producer-orders";
 
 export async function PATCH(request, { params }) {
   try {
@@ -52,7 +52,15 @@ export async function PATCH(request, { params }) {
       updated_at: new Date().toISOString(),
     };
     if (body.status) {
-      // Kargolama = üretici görevi bitti → otomatik tamamlandı
+      const markingShipped =
+        (body.status === "completed" || body.status === "shipped") &&
+        order.status === "ready" &&
+        isOwner;
+
+      if (markingShipped) {
+        await deductProducerStockOnShip(admin, order);
+      }
+
       updates.status =
         body.status === "shipped" ? "completed" : body.status;
     }

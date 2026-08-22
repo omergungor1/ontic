@@ -1,8 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import ImageLightbox from "@/components/ImageLightbox";
+import StorageImage from "@/components/StorageImage";
 import { formatDate } from "@/lib/format";
 
 const STATUS_LABEL = {
@@ -149,12 +149,11 @@ export default function AdminProductRequestsPage() {
                   onClick={() => setPreviewUrl(row.image_url)}
                   className="relative mt-3 h-40 w-full overflow-hidden rounded-xl bg-zinc-100"
                 >
-                  <Image
+                  <StorageImage
                     src={row.image_url}
                     alt={row.title}
                     fill
                     className="object-cover"
-                    sizes="(max-width: 640px) 100vw, 33vw"
                   />
                 </button>
               ) : null}

@@ -475,8 +475,8 @@ export default function AdminOrderDetailPage() {
             type="button"
             onClick={() => setOrderCancelOpen(true)}
             className={`rounded-xl px-4 py-2 text-sm font-medium ${orderCancelled
-                ? "bg-emerald-600 text-white"
-                : "bg-rose-600 text-white"
+              ? "bg-emerald-600 text-white"
+              : "bg-rose-600 text-white"
               }`}
           >
             {orderCancelled ? "İptali Geri Al" : "Siparişi İptal Et"}
@@ -555,8 +555,8 @@ export default function AdminOrderDetailPage() {
                 </div>
                 <span
                   className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${remaining > 0
-                      ? "bg-amber-100 text-amber-700"
-                      : "bg-emerald-100 text-emerald-700"
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-emerald-100 text-emerald-700"
                     }`}
                 >
                   {remaining > 0 ? `Kalan ${remaining}` : "Tamamen dağıtıldı"}
@@ -628,7 +628,7 @@ export default function AdminOrderDetailPage() {
                     >
                       {PRODUCER_ORDER_STATUS[po.status] || po.status}
                     </span>
-                    {po.status !== "cancelled" && po.status !== "rejected" ? (
+                    {po.status !== "cancelled" && po.status !== "rejected" && po.status !== "completed" ? (
                       <button
                         type="button"
                         onClick={() => cancelProducerOrder(po.id)}
@@ -1096,9 +1096,8 @@ export default function AdminOrderDetailPage() {
                 type="button"
                 disabled={orderCancelSaving}
                 onClick={confirmOrderCancelToggle}
-                className={`flex-1 rounded-xl py-2.5 text-sm font-medium text-white disabled:opacity-60 ${
-                  orderCancelled ? "bg-emerald-600" : "bg-rose-600"
-                }`}
+                className={`flex-1 rounded-xl py-2.5 text-sm font-medium text-white disabled:opacity-60 ${orderCancelled ? "bg-emerald-600" : "bg-rose-600"
+                  }`}
               >
                 {orderCancelSaving
                   ? "İşleniyor..."

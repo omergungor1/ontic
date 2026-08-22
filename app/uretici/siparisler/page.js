@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
 
 const PAGE_SIZE = 20;
+const STOCK_INFO_STATUSES = ["created", "confirmed", "ready"];
 
 function statusClass(status) {
   switch (status) {
@@ -40,6 +41,7 @@ function mergeUnique(prev, next) {
 
 export default function ProducerOrdersPage() {
   const [orders, setOrders] = useState([]);
+  const [stockByProductId, setStockByProductId] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -77,8 +79,28 @@ export default function ProducerOrdersPage() {
     let cancelled = false;
     async function init() {
       setLoading(true);
+      const supabase = createClient();
       const first = await loadPage(0);
       if (cancelled) return;
+
+      const uid = userIdRef.current;
+      if (uid) {
+        const { data: stockRows } = await supabase
+          .from("producer_products")
+          .select("product_id, stock_quantity")
+          .eq("producer_id", uid);
+        if (!cancelled) {
+          setStockByProductId(
+            Object.fromEntries(
+              (stockRows || []).map((r) => [
+                r.product_id,
+                Number(r.stock_quantity || 0),
+              ])
+            )
+          );
+        }
+      }
+
       setOrders(first);
       ordersLenRef.current = first.length;
       const more = first.length === PAGE_SIZE;
@@ -143,9 +165,14 @@ export default function ProducerOrdersPage() {
         <div className="space-y-3">
           {orders.map((order) => {
             const lines = order.producer_order_items || [];
-            const shortageCount = lines.filter(
-              (i) => Number(i.stock_at_assignment) < Number(i.quantity)
-            ).length;
+            const showStockInfo = STOCK_INFO_STATUSES.includes(order.status);
+            const shortageCount = showStockInfo
+              ? lines.filter((i) => {
+                  const qty = Number(i.quantity || 0);
+                  const stock = Number(stockByProductId[i.product_id] ?? 0);
+                  return stock < qty;
+                }).length
+              : 0;
             return (
               <Link
                 key={order.id}
@@ -170,8 +197,8 @@ export default function ProducerOrdersPage() {
                 <ul className="mt-3 space-y-2">
                   {lines.map((item) => {
                     const qty = Number(item.quantity || 0);
-                    const stock = Number(item.stock_at_assignment ?? 0);
-                    const shortage = stock < qty;
+                    const stock = Number(stockByProductId[item.product_id] ?? 0);
+                    const shortage = showStockInfo && stock < qty;
                     const missing = Math.max(0, qty - stock);
                     return (
                       <li
@@ -191,20 +218,22 @@ export default function ProducerOrdersPage() {
                             </span>
                           </p>
                         </div>
-                        <div
-                          className={`mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium ${
-                            shortage ? "text-rose-700" : "text-emerald-700"
-                          }`}
-                        >
-                          <span>Stok: {stock} adet</span>
-                          {shortage ? (
-                            <span className="rounded-md bg-rose-100 px-1.5 py-0.5 font-semibold">
-                              {missing} eksik
-                            </span>
-                          ) : (
-                            <span>Yeterli</span>
-                          )}
-                        </div>
+                        {showStockInfo ? (
+                          <div
+                            className={`mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium ${
+                              shortage ? "text-rose-700" : "text-emerald-700"
+                            }`}
+                          >
+                            <span>Güncel stok: {stock} adet</span>
+                            {shortage ? (
+                              <span className="rounded-md bg-rose-100 px-1.5 py-0.5 font-semibold">
+                                {missing} eksik
+                              </span>
+                            ) : (
+                              <span>Yeterli</span>
+                            )}
+                          </div>
+                        ) : null}
                       </li>
                     );
                   })}

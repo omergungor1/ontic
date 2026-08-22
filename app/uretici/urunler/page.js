@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import ImageLightbox from "@/components/ImageLightbox";
+import StorageImage from "@/components/StorageImage";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, truncate } from "@/lib/format";
 
@@ -433,12 +434,10 @@ export default function ProducerProductsPage() {
                         onClick={() => setPreviewUrl(requestImageUrl)}
                         className="relative h-36 w-full overflow-hidden rounded-xl bg-zinc-100"
                       >
-                        <Image
+                        <StorageImage
                           src={requestImageUrl}
                           alt="Talep görseli"
                           fill
-                          className="object-cover"
-                          sizes="400px"
                         />
                       </button>
                       <button
@@ -515,12 +514,10 @@ export default function ProducerProductsPage() {
                           onClick={() => setPreviewUrl(req.image_url)}
                           className="relative mt-2 h-24 w-full overflow-hidden rounded-lg bg-white"
                         >
-                          <Image
+                          <StorageImage
                             src={req.image_url}
                             alt={req.title}
                             fill
-                            className="object-cover"
-                            sizes="400px"
                           />
                         </button>
                       ) : null}

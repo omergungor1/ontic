@@ -385,8 +385,9 @@ export default function AdminCashPage() {
               Bu aralıkta sipariş yok
             </p>
           ) : (
-            <div className="overflow-x-auto overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-              <table className="w-full min-w-[900px] text-left text-sm">
+            <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+              <div className="overflow-x-auto overscroll-x-contain">
+                <table className="w-full min-w-[900px] text-left text-sm">
                 <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
                   <tr>
                     <th className="px-4 py-3">Sipariş</th>
@@ -449,6 +450,7 @@ export default function AdminCashPage() {
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
           )
         ) : timeline.length === 0 ? (
@@ -457,16 +459,19 @@ export default function AdminCashPage() {
           </p>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-                <tr>
-                  <th className="px-4 py-3">Tür</th>
-                  <th className="px-4 py-3">Üretici</th>
-                  <th className="px-4 py-3">Detay</th>
-                  <th className="px-4 py-3">Tutar</th>
-                  <th className="px-4 py-3">Tarih</th>
-                </tr>
-              </thead>
+            <div className="overflow-x-auto overscroll-x-contain">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+                  <tr>
+                    <th className="whitespace-nowrap px-4 py-3">Tür</th>
+                    <th className="whitespace-nowrap px-4 py-3">Üretici</th>
+                    <th className="min-w-[10rem] whitespace-nowrap px-4 py-3">
+                      Detay
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3">Tutar</th>
+                    <th className="whitespace-nowrap px-4 py-3">Tarih</th>
+                  </tr>
+                </thead>
               <tbody>
                 {timeline.map((item) => (
                   <tr key={item.id} className="border-t border-zinc-100">
@@ -484,7 +489,7 @@ export default function AdminCashPage() {
                     <td className="px-4 py-3 font-medium">
                       {item.producerName}
                     </td>
-                    <td className="px-4 py-3 text-zinc-500">
+                    <td className="min-w-[10rem] px-4 py-3 text-zinc-500">
                       {item.kind === "payment"
                         ? item.note || "-"
                         : `${item.meta?.orderNumber || "-"} · ${
@@ -493,17 +498,18 @@ export default function AdminCashPage() {
                             "-"
                           }`}
                     </td>
-                    <td className="px-4 py-3 font-medium text-rose-600">
+                    <td className="whitespace-nowrap px-4 py-3 font-medium text-rose-600">
                       {item.kind === "payment" ? "-" : ""}
                       {formatPrice(item.amount)}
                     </td>
-                    <td className="px-4 py-3 text-zinc-500">
+                    <td className="whitespace-nowrap px-4 py-3 text-zinc-500">
                       {formatDate(item.date)}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>

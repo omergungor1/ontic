@@ -10,6 +10,7 @@ import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
 
 // Kargolama sonrası görev biter; doğrudan completed olur
 const STATUS_FLOW = ["created", "confirmed", "ready", "completed"];
+const STOCK_INFO_STATUSES = ["created", "confirmed", "ready"];
 
 const NEXT_ACTION_LABEL = {
   created: "Siparişi Onayla",
@@ -24,6 +25,7 @@ export default function ProducerOrderDetailPage() {
 
   const [order, setOrder] = useState(null);
   const [items, setItems] = useState([]);
+  const [stockByProductId, setStockByProductId] = useState({});
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [message, setMessage] = useState("");
@@ -42,7 +44,34 @@ export default function ProducerOrderDetailPage() {
       .eq("id", orderId)
       .maybeSingle();
     setOrder(data || null);
-    setItems(data?.producer_order_items || []);
+    const lineItems = data?.producer_order_items || [];
+    setItems(lineItems);
+
+    if (data?.producer_id && lineItems.length) {
+      const productIds = [
+        ...new Set(lineItems.map((i) => i.product_id).filter(Boolean)),
+      ];
+      if (productIds.length) {
+        const { data: stockRows } = await supabase
+          .from("producer_products")
+          .select("product_id, stock_quantity")
+          .eq("producer_id", data.producer_id)
+          .in("product_id", productIds);
+        setStockByProductId(
+          Object.fromEntries(
+            (stockRows || []).map((r) => [
+              r.product_id,
+              Number(r.stock_quantity || 0),
+            ])
+          )
+        );
+      } else {
+        setStockByProductId({});
+      }
+    } else {
+      setStockByProductId({});
+    }
+
     setLoading(false);
   }
 
@@ -109,6 +138,7 @@ export default function ProducerOrderDetailPage() {
       : null;
   const isFinished =
     order.status === "completed" || order.status === "shipped";
+  const showStockInfo = STOCK_INFO_STATUSES.includes(order.status);
 
   return (
     <div className="space-y-6">
@@ -166,9 +196,9 @@ export default function ProducerOrderDetailPage() {
         <h2 className="text-lg font-semibold">Ürünler</h2>
         {items.map((item) => {
           const qty = Number(item.quantity || 0);
-          const stockAtAssign = Number(item.stock_at_assignment ?? 0);
-          const shortage = stockAtAssign < qty;
-          const missing = Math.max(0, qty - stockAtAssign);
+          const currentStock = Number(stockByProductId[item.product_id] ?? 0);
+          const shortage = showStockInfo && currentStock < qty;
+          const missing = Math.max(0, qty - currentStock);
           return (
             <div
               key={item.id}
@@ -204,27 +234,31 @@ export default function ProducerOrderDetailPage() {
                 </p>
               </div>
 
-              <div
-                className={`mt-3 rounded-xl px-3 py-2.5 ${
-                  shortage
-                    ? "bg-rose-50 text-rose-800"
-                    : "bg-emerald-50 text-emerald-800"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2 text-sm">
-                  <span className="font-medium">Atama anındaki stok</span>
-                  <span className="font-bold tabular-nums">{stockAtAssign} adet</span>
+              {showStockInfo ? (
+                <div
+                  className={`mt-3 rounded-xl px-3 py-2.5 ${
+                    shortage
+                      ? "bg-rose-50 text-rose-800"
+                      : "bg-emerald-50 text-emerald-800"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="font-medium">Güncel stok</span>
+                    <span className="font-bold tabular-nums">
+                      {currentStock} adet
+                    </span>
+                  </div>
+                  {shortage ? (
+                    <p className="mt-1.5 text-sm font-semibold">
+                      {missing} adet eksik — stoğunuzu tamamlayın
+                    </p>
+                  ) : (
+                    <p className="mt-1.5 text-sm font-medium">
+                      Stok sipariş için yeterli
+                    </p>
+                  )}
                 </div>
-                {shortage ? (
-                  <p className="mt-1.5 text-sm font-semibold">
-                    {missing} adet eksik — stoğunuzu tamamlayın
-                  </p>
-                ) : (
-                  <p className="mt-1.5 text-sm font-medium">
-                    Stok sipariş için yeterli
-                  </p>
-                )}
-              </div>
+              ) : null}
             </div>
           );
         })}

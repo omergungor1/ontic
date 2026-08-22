@@ -1,8 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ImageLightbox from "@/components/ImageLightbox";
+import StorageImage from "@/components/StorageImage";
 import BackButton from "@/components/BackButton";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
@@ -384,7 +384,11 @@ export default function AdminMessagesPage() {
                 </p>
               ) : null}
               {messages.map((m) => {
-                const mine = m.sender_id === meId;
+                // Admin sohbetinde üretici dışındaki gönderen admin'dir
+                const mine =
+                  selected?.producer_id != null
+                    ? m.sender_id !== selected.producer_id
+                    : m.sender_id === meId;
                 return (
                   <div
                     key={m.id}
@@ -403,12 +407,10 @@ export default function AdminMessagesPage() {
                           onClick={() => setPreviewUrl(m.image_url)}
                           className="mb-1 block overflow-hidden rounded-lg text-left"
                         >
-                          <Image
+                          <StorageImage
                             src={m.image_url}
                             alt="Görsel"
-                            width={220}
-                            height={220}
-                            className="object-cover"
+                            className="max-h-56 max-w-[220px] w-full object-cover"
                           />
                         </button>
                       ) : null}
