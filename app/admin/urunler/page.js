@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import StorageImage from "@/components/StorageImage";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatPrice, truncate } from "@/lib/format";
@@ -182,12 +182,11 @@ export default function AdminProductsPage() {
               >
                 <div className="relative aspect-[4/3] bg-zinc-100">
                   {product.image_url ? (
-                    <Image
+                    <StorageImage
                       src={product.image_url}
                       alt={product.title}
                       fill
                       className="object-cover"
-                      sizes="(max-width:768px) 100vw, 33vw"
                     />
                   ) : null}
                 </div>
