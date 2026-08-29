@@ -1,8 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import StorageImage from "@/components/StorageImage";
 
 export default function AdminStockPage() {
   const [rows, setRows] = useState([]);
@@ -138,12 +138,11 @@ export default function AdminStockPage() {
               >
                 <div className="relative aspect-[4/3] bg-zinc-100">
                   {product.image_url ? (
-                    <Image
+                    <StorageImage
                       src={product.image_url}
                       alt={product.title}
                       fill
                       className="object-cover"
-                      sizes="(max-width:768px) 100vw, 33vw"
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center text-sm text-zinc-400">
@@ -180,9 +179,8 @@ export default function AdminStockPage() {
                       </p>
                     </div>
                     <span
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition ${
-                        open ? "rotate-180" : ""
-                      }`}
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition ${open ? "rotate-180" : ""
+                        }`}
                     >
                       <svg
                         viewBox="0 0 24 24"

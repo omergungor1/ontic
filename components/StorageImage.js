@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Supabase Storage vb. harici görseller için doğrudan <img> kullanır.
- * next/image optimizasyonu mobilde Supabase URL'lerinde kırılabiliyor.
+ * Harici görseller (Supabase Storage, Trendyol CDN vb.) için doğrudan <img> kullanır.
+ * next/image optimizasyonu bazı cihazlarda (özellikle tablet) harici URL'lerde kırılabiliyor.
  */
 export default function StorageImage({
   src,
