@@ -40,10 +40,43 @@ export async function POST(request) {
     if (error) throw error;
 
     for (const line of lines) {
-      await admin.from("trendyol_order_items").insert({
+      let productId = line.productId || null;
+      const productName = String(line.productName || "").trim();
+      if (!productName) {
+        throw new Error("Ürün adı gerekli");
+      }
+
+      if (!productId) {
+        const imageUrl = line.imageUrl || null;
+        const { data: product, error: productError } = await admin
+          .from("products")
+          .insert({
+            title: productName,
+            is_manual: true,
+            is_active: true,
+            image_url: imageUrl,
+            images: imageUrl ? [{ url: imageUrl }] : [],
+            producer_price: 0,
+          })
+          .select("id")
+          .single();
+        if (productError) throw productError;
+        productId = product.id;
+
+        const { error: variantError } = await admin.from("product_variants").insert({
+          product_id: productId,
+          barcode: `MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          sale_price: Number(line.unitPrice || 0),
+          list_price: Number(line.unitPrice || 0),
+          on_sale: true,
+        });
+        if (variantError) throw variantError;
+      }
+
+      const { error: itemError } = await admin.from("trendyol_order_items").insert({
         order_id: order.id,
-        product_id: line.productId || null,
-        product_name: line.productName || null,
+        product_id: productId,
+        product_name: productName,
         barcode: line.barcode || null,
         quantity: Number(line.quantity || 1),
         unit_price: Number(line.unitPrice || 0),
@@ -51,6 +84,7 @@ export async function POST(request) {
         commission_rate: 0,
         assigned_quantity: 0,
       });
+      if (itemError) throw itemError;
     }
 
     await refreshOrderInternalStatus(order.id);

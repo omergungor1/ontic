@@ -13,6 +13,12 @@ import {
   INTERNAL_ORDER_STATUS,
   PRODUCER_ORDER_STATUS,
 } from "@/lib/format";
+import {
+  computeAssignedByItemId,
+  remainingByItemId,
+  deriveInternalStatus,
+  isTrendyolCancelled,
+} from "@/lib/assigned-quantity";
 
 function producerStatusClass(status) {
   switch (status) {
@@ -137,6 +143,36 @@ export default function AdminOrderDetailPage() {
     setCandidatesByProduct(candidateMap);
     setAllProducers(producers || []);
     if (!silent) setLoading(false);
+
+    const assignedMap = computeAssignedByItemId(
+      itemsData || [],
+      producerOrdersData || []
+    );
+    const mismatch = (itemsData || []).some(
+      (item) =>
+        Number(item.assigned_quantity || 0) !== Number(assignedMap[item.id] || 0)
+    );
+    if (mismatch) {
+      fetch("/api/admin/orders/reconcile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!data?.internal_status) return;
+          setOrder((prev) =>
+            prev ? { ...prev, internal_status: data.internal_status } : prev
+          );
+          setItems((prev) =>
+            prev.map((item) => ({
+              ...item,
+              assigned_quantity: assignedMap[item.id] || 0,
+            }))
+          );
+        })
+        .catch(() => {});
+    }
   }
 
   useEffect(() => {
@@ -144,15 +180,16 @@ export default function AdminOrderDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
-  // Kalan adet = toplam - iptal edilmemiş atamalar
-  const remainingByItem = useMemo(() => {
-    const map = {};
-    for (const item of items) {
-      map[item.id] =
-        Number(item.quantity) - Number(item.assigned_quantity || 0);
-    }
-    return map;
-  }, [items]);
+  // Kalan adet = toplam - iptal/red edilmemiş üretici atamaları
+  const remainingByItem = useMemo(
+    () => remainingByItemId(items, producerOrders),
+    [items, producerOrders]
+  );
+
+  const assignedByItem = useMemo(
+    () => computeAssignedByItemId(items, producerOrders),
+    [items, producerOrders]
+  );
 
   const remainingItems = useMemo(
     () => items.filter((item) => remainingByItem[item.id] > 0),
@@ -446,7 +483,9 @@ export default function AdminOrderDetailPage() {
       </div>
     );
 
-  const orderCancelled = order.internal_status === "cancelled";
+  const displayStatus = deriveInternalStatus(order, items, producerOrders);
+  const orderCancelled = displayStatus === "cancelled";
+  const trendyolCancelled = isTrendyolCancelled(order);
   const pickerItem = items.find((i) => i.id === pickerItemId);
 
   return (
@@ -468,19 +507,20 @@ export default function AdminOrderDetailPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm font-medium">
-            {INTERNAL_ORDER_STATUS[order.internal_status] ||
-              order.internal_status}
+            {INTERNAL_ORDER_STATUS[displayStatus] || displayStatus}
           </span>
-          <button
-            type="button"
-            onClick={() => setOrderCancelOpen(true)}
-            className={`rounded-xl px-4 py-2 text-sm font-medium ${orderCancelled
-              ? "bg-emerald-600 text-white"
-              : "bg-rose-600 text-white"
-              }`}
-          >
-            {orderCancelled ? "İptali Geri Al" : "Siparişi İptal Et"}
-          </button>
+          {!trendyolCancelled ? (
+            <button
+              type="button"
+              onClick={() => setOrderCancelOpen(true)}
+              className={`rounded-xl px-4 py-2 text-sm font-medium ${orderCancelled
+                ? "bg-emerald-600 text-white"
+                : "bg-rose-600 text-white"
+                }`}
+            >
+              {orderCancelled ? "İptali Geri Al" : "Siparişi İptal Et"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -550,7 +590,7 @@ export default function AdminOrderDetailPage() {
                   <p className="text-xs text-zinc-500">
                     {item.barcode ? `Barkod: ${item.barcode} · ` : ""}
                     Toplam {item.quantity} · Dağıtılan{" "}
-                    {item.assigned_quantity || 0}
+                    {assignedByItem[item.id] || 0}
                   </p>
                 </div>
                 <span
@@ -777,7 +817,7 @@ export default function AdminOrderDetailPage() {
                           </div>
                           <p className="mt-1 text-[11px] text-zinc-500">
                             Toplam sipariş: {item.quantity} · Atanan:{" "}
-                            {Number(item.assigned_quantity || 0)}
+                            {Number(assignedByItem[item.id] || 0)}
                           </p>
                         </div>
                       </div>

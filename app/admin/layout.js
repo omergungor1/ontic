@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { clearSupabaseAuthCookies } from "@/lib/supabase/clear-auth-cookies";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
 const LINKS = [
@@ -174,6 +175,7 @@ export default function AdminLayout({ children }) {
     setLogoutOpen(false);
     const supabase = createClient();
     await supabase.auth.signOut();
+    clearSupabaseAuthCookies();
     router.push("/admin/giris");
   }
 

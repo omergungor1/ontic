@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { refreshOrderInternalStatus } from "@/lib/sync";
+import { reconcileAssignedQuantities } from "@/lib/assigned-quantity";
 
 const MERGEABLE_STATUSES = ["created", "confirmed", "ready"];
 
@@ -21,6 +22,8 @@ export async function POST(request) {
         { status: 400 }
       );
     }
+
+    await reconcileAssignedQuantities(admin, orderId);
 
     const { data: orderItems } = await admin
       .from("trendyol_order_items")

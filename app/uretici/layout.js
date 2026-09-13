@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { clearSupabaseAuthCookies } from "@/lib/supabase/clear-auth-cookies";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
 function HomeIcon(props) {
@@ -170,6 +171,7 @@ export default function ProducerLayout({ children }) {
     setLogoutOpen(false);
     const supabase = createClient();
     await supabase.auth.signOut();
+    clearSupabaseAuthCookies();
     router.push("/giris");
   }
 

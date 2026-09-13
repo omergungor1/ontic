@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import StorageImage from "@/components/StorageImage";
 import { formatDate, formatPrice, INTERNAL_ORDER_STATUS } from "@/lib/format";
+import { deriveInternalStatus } from "@/lib/assigned-quantity";
 
 const FILTERS = [
   { key: "all", label: "Tümü" },
@@ -32,11 +34,13 @@ function statusBadgeClass(status) {
 }
 
 const emptyLine = () => ({
+  entryMode: "select",
   productId: "",
   productName: "",
   barcode: "",
   quantity: 1,
   unitPrice: "",
+  imageUrl: "",
 });
 
 export default function AdminOrdersPage() {
@@ -51,6 +55,7 @@ export default function AdminOrdersPage() {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError, setManualError] = useState("");
+  const [uploadingLine, setUploadingLine] = useState(null);
   const [products, setProducts] = useState([]);
   const [manual, setManual] = useState({
     customerFirstName: "",
@@ -63,17 +68,27 @@ export default function AdminOrdersPage() {
     const supabase = createClient();
     const { data } = await supabase
       .from("trendyol_orders")
-      .select("*, producer_orders(id, status)")
+      .select(
+        "*, producer_orders(id, status, producer_order_items(order_item_id, product_id, quantity)), trendyol_order_items(id, quantity, product_id, assigned_quantity)"
+      )
       .order("order_date", { ascending: false })
       .limit(200);
     setOrders(data || []);
     setLoading(false);
   }
 
+  function orderStatus(order) {
+    return deriveInternalStatus(
+      order,
+      order.trendyol_order_items,
+      order.producer_orders
+    );
+  }
+
   function needsRejectionWarning(order) {
+    const status = orderStatus(order);
     const awaiting =
-      order.internal_status === "pending_assignment" ||
-      order.internal_status === "partially_assigned";
+      status === "pending_assignment" || status === "partially_assigned";
     if (!awaiting) return false;
     return (order.producer_orders || []).some((po) => po.status === "rejected");
   }
@@ -82,7 +97,7 @@ export default function AdminOrdersPage() {
     const supabase = createClient();
     const { data } = await supabase
       .from("products")
-      .select("id, title, is_active, product_variants(barcode, sale_price)")
+      .select("id, title, is_active, image_url, product_variants(barcode, sale_price)")
       .eq("is_active", true)
       .order("title", { ascending: true });
     setProducts(data || []);
@@ -95,7 +110,7 @@ export default function AdminOrdersPage() {
   const filteredOrders = useMemo(() => {
     let list = orders;
     if (filter !== "all") {
-      list = list.filter((order) => order.internal_status === filter);
+      list = list.filter((order) => orderStatus(order) === filter);
     }
     const term = search.trim().toLowerCase();
     if (term) {
@@ -151,13 +166,26 @@ export default function AdminOrdersPage() {
   }
 
   function pickProduct(index, productId) {
+    if (!productId) {
+      updateLine(index, {
+        entryMode: "select",
+        productId: "",
+        productName: "",
+        barcode: "",
+        unitPrice: "",
+        imageUrl: "",
+      });
+      return;
+    }
     const product = products.find((p) => p.id === productId);
     const variant = product?.product_variants?.[0];
     updateLine(index, {
+      entryMode: "select",
       productId,
       productName: product?.title || "",
       barcode: variant?.barcode || "",
       unitPrice: variant?.sale_price ?? "",
+      imageUrl: product?.image_url || "",
     });
   }
 
@@ -172,20 +200,76 @@ export default function AdminOrdersPage() {
     }));
   }
 
+  function setEntryMode(index, entryMode) {
+    if (entryMode === "manual") {
+      updateLine(index, {
+        entryMode: "manual",
+        productId: "",
+        barcode: "",
+        imageUrl: "",
+        productName: "",
+      });
+      return;
+    }
+    updateLine(index, {
+      entryMode: "select",
+      productId: "",
+      productName: "",
+      barcode: "",
+      imageUrl: "",
+    });
+  }
+
+  async function uploadLineImage(index, file) {
+    if (!file) return;
+    const name = String(manual.lines[index]?.productName || "").trim();
+    if (!name) {
+      setManualError("Önce ürün adını girin");
+      return;
+    }
+    setUploadingLine(index);
+    setManualError("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("bucket", "product-request-images");
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Görsel yüklenemedi");
+      updateLine(index, { imageUrl: data.url });
+    } catch (err) {
+      setManualError(err.message);
+    } finally {
+      setUploadingLine(null);
+    }
+  }
+
   async function submitManual(e) {
     e.preventDefault();
     setManualSaving(true);
     setManualError("");
     try {
-      const lines = manual.lines
-        .filter((line) => line.productName && Number(line.quantity) > 0)
-        .map((line) => ({
-          productId: line.productId || null,
-          productName: line.productName,
-          barcode: line.barcode || null,
-          quantity: Number(line.quantity),
+      const lines = [];
+      for (const line of manual.lines) {
+        const productName = String(line.productName || "").trim();
+        const qty = Number(line.quantity);
+        if (!productName || !(qty > 0)) continue;
+        const isManual = line.entryMode === "manual";
+        if (!isManual && !line.productId) {
+          throw new Error(`"${productName}" için listeden ürün seçin`);
+        }
+        lines.push({
+          productId: isManual ? null : line.productId || null,
+          productName,
+          barcode: isManual ? null : line.barcode || null,
+          quantity: qty,
           unitPrice: Number(line.unitPrice || 0),
-        }));
+          imageUrl: isManual ? line.imageUrl || null : null,
+        });
+      }
 
       if (!lines.length) {
         throw new Error("En az bir ürün satırı ekleyin");
@@ -325,11 +409,11 @@ export default function AdminOrdersPage() {
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span
                           className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            order.internal_status
+                            orderStatus(order)
                           )}`}
                         >
-                          {INTERNAL_ORDER_STATUS[order.internal_status] ||
-                            order.internal_status}
+                          {INTERNAL_ORDER_STATUS[orderStatus(order)] ||
+                            orderStatus(order)}
                         </span>
                         {needsRejectionWarning(order) ? (
                           <span className="rounded-full bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white">
@@ -431,37 +515,144 @@ export default function AdminOrdersPage() {
                       ) : null}
                     </div>
 
-                    <label className="block min-w-0">
-                      <span className="mb-1 block text-xs text-zinc-500">
-                        Listeden seç
-                      </span>
-                      <select
-                        value={line.productId}
-                        onChange={(e) => pickProduct(index, e.target.value)}
-                        className="w-full min-w-0 max-w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500"
+                    <div className="grid grid-cols-2 gap-2">
+                      <label
+                        className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
+                          line.entryMode !== "manual"
+                            ? "border-orange-500 bg-orange-50 text-orange-800"
+                            : "border-zinc-200 bg-white text-zinc-600"
+                        }`}
                       >
-                        <option value="">Ürün seç veya elle yaz</option>
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.title}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                        <input
+                          type="radio"
+                          name={`entry-mode-${index}`}
+                          checked={line.entryMode !== "manual"}
+                          onChange={() => setEntryMode(index, "select")}
+                          className="accent-orange-600"
+                        />
+                        Ürün seç
+                      </label>
+                      <label
+                        className={`flex cursor-pointer items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
+                          line.entryMode === "manual"
+                            ? "border-orange-500 bg-orange-50 text-orange-800"
+                            : "border-zinc-200 bg-white text-zinc-600"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`entry-mode-${index}`}
+                          checked={line.entryMode === "manual"}
+                          onChange={() => setEntryMode(index, "manual")}
+                          className="accent-orange-600"
+                        />
+                        Manuel giriş
+                      </label>
+                    </div>
 
-                    <label className="block min-w-0">
-                      <span className="mb-1 block text-xs text-zinc-500">
-                        Ürün adı
-                      </span>
-                      <input
-                        placeholder="Ürün adı"
-                        value={line.productName}
-                        onChange={(e) =>
-                          updateLine(index, { productName: e.target.value })
-                        }
-                        className="w-full min-w-0 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500"
-                      />
-                    </label>
+                    {line.entryMode === "manual" ? (
+                      <>
+                        <label className="block min-w-0">
+                          <span className="mb-1 block text-xs text-zinc-500">
+                            Ürün adı
+                          </span>
+                          <input
+                            placeholder="Ürün adı"
+                            value={line.productName}
+                            onChange={(e) =>
+                              updateLine(index, { productName: e.target.value })
+                            }
+                            className="w-full min-w-0 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500"
+                          />
+                        </label>
+                        <div className="space-y-2">
+                          <span className="block text-xs text-zinc-500">
+                            Ürün resmi (opsiyonel)
+                          </span>
+                          {line.imageUrl ? (
+                            <div className="flex items-center gap-3">
+                              <div className="relative h-14 w-14 overflow-hidden rounded-xl bg-zinc-100">
+                                <StorageImage
+                                  src={line.imageUrl}
+                                  alt={line.productName || "Ürün"}
+                                  fill
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => updateLine(index, { imageUrl: "" })}
+                                className="rounded-lg px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                              >
+                                Kaldır
+                              </button>
+                            </div>
+                          ) : null}
+                          <label
+                            className={`inline-flex rounded-xl border px-4 py-2.5 text-sm font-medium ${
+                              !String(line.productName || "").trim() ||
+                              uploadingLine === index
+                                ? "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400"
+                                : "cursor-pointer border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                            }`}
+                          >
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              disabled={
+                                !String(line.productName || "").trim() ||
+                                uploadingLine === index
+                              }
+                              onChange={(e) => {
+                                uploadLineImage(index, e.target.files?.[0]);
+                                e.target.value = "";
+                              }}
+                            />
+                            {uploadingLine === index
+                              ? "Yükleniyor..."
+                              : line.imageUrl
+                                ? "Görseli değiştir"
+                                : "Görsel yükle"}
+                          </label>
+                          {!String(line.productName || "").trim() ? (
+                            <p className="text-[11px] text-zinc-500">
+                              Görsel yüklemek için önce ürün adını girin
+                            </p>
+                          ) : null}
+                        </div>
+                      </>
+                    ) : (
+                      <label className="block min-w-0">
+                        <span className="mb-1 block text-xs text-zinc-500">
+                          Listeden seç
+                        </span>
+                        <select
+                          value={line.productId}
+                          onChange={(e) => pickProduct(index, e.target.value)}
+                          className="w-full min-w-0 max-w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500"
+                        >
+                          <option value="">Ürün seç</option>
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.title}
+                            </option>
+                          ))}
+                        </select>
+                        {products.find((p) => p.id === line.productId)
+                          ?.image_url ? (
+                          <div className="relative mt-2 h-14 w-14 overflow-hidden rounded-xl bg-zinc-100">
+                            <StorageImage
+                              src={
+                                products.find((p) => p.id === line.productId)
+                                  .image_url
+                              }
+                              alt={line.productName || "Ürün"}
+                              fill
+                            />
+                          </div>
+                        ) : null}
+                      </label>
+                    )}
 
                     <div className="grid grid-cols-2 gap-3">
                       <label className="block min-w-0">
