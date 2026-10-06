@@ -96,6 +96,19 @@ export default function AdminHomePage() {
         />
       </div>
 
+      <Link
+        href="/admin/analiz"
+        className="flex items-center justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-5 py-4 transition hover:border-orange-300 hover:bg-orange-100/70"
+      >
+        <div>
+          <p className="font-semibold text-orange-900">Analiz & İstatistik</p>
+          <p className="mt-0.5 text-sm text-orange-800/80">
+            Üretici performansı, kargo süreleri ve stok doluluk oranları
+          </p>
+        </div>
+        <span className="text-sm font-medium text-orange-700">Aç →</span>
+      </Link>
+
       <div className="rounded-2xl border border-zinc-200 bg-white p-5">
         <h2 className="font-semibold">Trendyol Senkron</h2>
         <p className="mt-1 text-sm text-zinc-500">

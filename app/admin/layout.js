@@ -10,6 +10,7 @@ import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
 const LINKS = [
   { href: "/admin", label: "Özet" },
+  { href: "/admin/analiz", label: "Analiz" },
   { href: "/admin/siparisler", label: "Siparişler" },
   { href: "/admin/uretici-siparisler", label: "Üretici Siparişleri" },
   { href: "/admin/urunler", label: "Ürünler" },
