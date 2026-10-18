@@ -43,6 +43,16 @@ function GearIcon(props) {
   );
 }
 
+function MoreIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
+      <circle cx="12" cy="5" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="12" cy="19" r="1.8" />
+    </svg>
+  );
+}
+
 export default function AdminCashPage() {
   const [from, setFrom] = useState(monthAgoIso());
   const [to, setTo] = useState(todayIso());
@@ -70,6 +80,10 @@ export default function AdminCashPage() {
   const [settingsForm, setSettingsForm] = useState(EMPTY_SETTINGS);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState("");
+
+  const [menuOpenId, setMenuOpenId] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function loadProducers() {
     const supabase = createClient();
@@ -145,6 +159,7 @@ export default function AdminCashPage() {
       for (const p of payments) {
         items.push({
           id: `payment-${p.id}`,
+          paymentId: p.id,
           kind: "payment",
           date: p.paid_at,
           producerName: p.profiles?.full_name || "-",
@@ -249,6 +264,55 @@ export default function AdminCashPage() {
       setSaving(false);
     }
   }
+
+  function openDeletePayment(item) {
+    setMenuOpenId("");
+    setDeleteTarget({
+      id: item.paymentId,
+      producerName: item.producerName,
+      amount: item.amount,
+    });
+  }
+
+  async function confirmDeletePayment() {
+    if (!deleteTarget?.id) return;
+    setDeleting(true);
+    setMessage("");
+    try {
+      const res = await fetch("/api/admin/payments", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: deleteTarget.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Ödeme silinemedi");
+      setDeleteTarget(null);
+      setMessage("");
+      await load();
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!menuOpenId) return undefined;
+    function onPointerDown(e) {
+      if (!e.target.closest?.("[data-payment-menu]")) {
+        setMenuOpenId("");
+      }
+    }
+    function onKeyDown(e) {
+      if (e.key === "Escape") setMenuOpenId("");
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpenId]);
 
   const listTitle =
     listType === "payment"
@@ -470,6 +534,9 @@ export default function AdminCashPage() {
                     </th>
                     <th className="whitespace-nowrap px-4 py-3">Tutar</th>
                     <th className="whitespace-nowrap px-4 py-3">Tarih</th>
+                    <th className="w-12 px-2 py-3">
+                      <span className="sr-only">İşlemler</span>
+                    </th>
                   </tr>
                 </thead>
               <tbody>
@@ -505,6 +572,36 @@ export default function AdminCashPage() {
                     <td className="whitespace-nowrap px-4 py-3 text-zinc-500">
                       {formatDate(item.date)}
                     </td>
+                    <td className="px-2 py-3 text-right">
+                      {item.kind === "payment" ? (
+                        <div className="relative inline-block" data-payment-menu>
+                          <button
+                            type="button"
+                            aria-label="Ödeme işlemleri"
+                            aria-expanded={menuOpenId === item.id}
+                            onClick={() =>
+                              setMenuOpenId((prev) =>
+                                prev === item.id ? "" : item.id
+                              )
+                            }
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                          >
+                            <MoreIcon className="h-5 w-5" />
+                          </button>
+                          {menuOpenId === item.id ? (
+                            <div className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+                              <button
+                                type="button"
+                                onClick={() => openDeletePayment(item)}
+                                className="block w-full px-3 py-2 text-left text-sm font-medium text-rose-600 hover:bg-rose-50"
+                              >
+                                Ödemeyi sil
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -513,6 +610,53 @@ export default function AdminCashPage() {
           </div>
         )}
       </div>
+
+      {deleteTarget ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-payment-title"
+          >
+            <h3
+              id="delete-payment-title"
+              className="text-lg font-semibold text-zinc-900"
+            >
+              Ödemeyi sil
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+              Emin misiniz?{" "}
+              <span className="font-medium text-zinc-900">
+                {deleteTarget.producerName}
+              </span>{" "}
+              kişisine yapılan{" "}
+              <span className="font-medium text-zinc-900">
+                {formatPrice(deleteTarget.amount)}
+              </span>{" "}
+              tutarındaki ödeme silinecektir.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 rounded-xl border border-zinc-300 py-2.5 text-sm font-medium disabled:opacity-60"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={confirmDeletePayment}
+                className="flex-1 rounded-xl bg-rose-600 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+              >
+                {deleting ? "Siliniyor..." : "Evet, sil"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {formOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

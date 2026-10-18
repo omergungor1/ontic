@@ -152,3 +152,42 @@ export async function POST(request) {
     );
   }
 }
+
+export async function DELETE(request) {
+  try {
+    await requireAdmin();
+    const body = await request.json().catch(() => ({}));
+    const id = body.id || new URL(request.url).searchParams.get("id");
+    if (!id) {
+      return NextResponse.json({ error: "Ödeme gerekli" }, { status: 400 });
+    }
+
+    const admin = createAdminClient();
+    const { data: payment, error: findError } = await admin
+      .from("payments")
+      .select("id, amount, profiles:producer_id(full_name, username)")
+      .eq("id", id)
+      .maybeSingle();
+    if (findError) throw findError;
+    if (!payment) {
+      return NextResponse.json({ error: "Ödeme bulunamadı" }, { status: 404 });
+    }
+
+    const { error } = await admin.from("payments").delete().eq("id", id);
+    if (error) throw error;
+
+    return NextResponse.json({
+      ok: true,
+      deleted: {
+        id: payment.id,
+        amount: payment.amount,
+        producerName: payment.profiles?.full_name || null,
+      },
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error.message },
+      { status: error.status || 500 }
+    );
+  }
+}
