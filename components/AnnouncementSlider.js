@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import StorageImage from "@/components/StorageImage";
 import { useEffect, useState } from "react";
 
 export default function AnnouncementSlider({ items = [] }) {
@@ -26,12 +26,10 @@ export default function AnnouncementSlider({ items = [] }) {
     <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white select-none">
       <div className="relative aspect-[16/9] bg-zinc-100">
         {current.image_url ? (
-          <Image
+          <StorageImage
             src={current.image_url}
             alt={current.title || "Duyuru"}
             fill
-            className="object-cover"
-            sizes="(max-width:768px) 100vw, 640px"
             priority
           />
         ) : (

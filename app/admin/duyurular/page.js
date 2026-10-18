@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import StorageImage from "@/components/StorageImage";
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, truncate } from "@/lib/format";
@@ -216,12 +216,10 @@ export default function AdminAnnouncementsPage() {
             >
               <div className="relative aspect-[16/9] bg-zinc-100">
                 {row.image_url ? (
-                  <Image
+                  <StorageImage
                     src={row.image_url}
                     alt={row.title}
                     fill
-                    className="object-cover"
-                    sizes="(max-width:768px) 100vw, 33vw"
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm text-zinc-400">
@@ -351,12 +349,10 @@ export default function AdminAnnouncementsPage() {
                 <span className="mb-1.5 block text-sm font-medium">Görsel</span>
                 {form.image_url ? (
                   <div className="relative mb-3 aspect-[16/9] overflow-hidden rounded-xl bg-zinc-100">
-                    <Image
+                    <StorageImage
                       src={form.image_url}
                       alt="Duyuru görseli"
                       fill
-                      className="object-cover"
-                      sizes="400px"
                     />
                   </div>
                 ) : null}

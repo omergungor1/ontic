@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Harici görseller (Supabase Storage, Trendyol CDN vb.) için doğrudan <img> kullanır.
- * next/image optimizasyonu bazı cihazlarda (özellikle tablet) harici URL'lerde kırılabiliyor.
+ * Harici görseller (Supabase Storage, Trendyol CDN vb.) için doğrudan <img>.
+ * Vercel Image Optimization kullanmaz; free planda transformation limitini tüketmez.
  */
 export default function StorageImage({
   src,
@@ -10,11 +10,16 @@ export default function StorageImage({
   className = "",
   fill = false,
   objectFit = "cover",
+  priority = false,
 }) {
   if (!src) return null;
 
   const fitClass =
     objectFit === "contain" ? "object-contain" : "object-cover";
+
+  const loadingProps = priority
+    ? { loading: "eager", fetchPriority: "high" }
+    : { loading: "lazy" };
 
   if (fill) {
     return (
@@ -23,6 +28,7 @@ export default function StorageImage({
         src={src}
         alt={alt}
         decoding="async"
+        {...loadingProps}
         className={`absolute inset-0 h-full w-full ${fitClass} ${className}`.trim()}
       />
     );
@@ -30,6 +36,12 @@ export default function StorageImage({
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt={alt} decoding="async" className={className} />
+    <img
+      src={src}
+      alt={alt}
+      decoding="async"
+      {...loadingProps}
+      className={className}
+    />
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
+import StorageImage from "@/components/StorageImage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import PhoneInput from "@/components/PhoneInput";
@@ -447,12 +447,10 @@ export default function AdminProducerDetailPage() {
                         >
                           <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-zinc-200">
                             {item.products?.image_url ? (
-                              <Image
+                              <StorageImage
                                 src={item.products.image_url}
                                 alt={item.products.title || "Ürün"}
                                 fill
-                                className="object-cover"
-                                sizes="44px"
                               />
                             ) : null}
                           </div>
@@ -533,12 +531,10 @@ export default function AdminProducerDetailPage() {
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white">
                         {p.image_url ? (
-                          <Image
+                          <StorageImage
                             src={p.image_url}
                             alt={p.title}
                             fill
-                            className="object-cover"
-                            sizes="48px"
                           />
                         ) : null}
                       </div>

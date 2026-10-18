@@ -5,6 +5,9 @@ const nextConfig = {
     root: process.cwd(),
   },
   images: {
+    // Vercel Hobby Image Optimization limitini tüketmemek için
+    // tüm next/image çağrılarını kaynak URL üzerinden sun.
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: "https",

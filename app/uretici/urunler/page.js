@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import ImageLightbox from "@/components/ImageLightbox";
 import StorageImage from "@/components/StorageImage";
@@ -276,12 +275,10 @@ export default function ProducerProductsPage() {
                     aria-label="Ürün görselini büyüt"
                   >
                     {row.products?.image_url ? (
-                      <Image
+                      <StorageImage
                         src={row.products.image_url}
                         alt={row.products.title || "Ürün"}
                         fill
-                        className="object-cover"
-                        sizes="80px"
                       />
                     ) : (
                       <div className="flex h-full items-center justify-center text-xs text-zinc-400">

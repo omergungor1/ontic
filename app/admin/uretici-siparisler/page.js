@@ -1,9 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ImageLightbox from "@/components/ImageLightbox";
+import StorageImage from "@/components/StorageImage";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
 
@@ -298,12 +298,10 @@ export default function AdminProducerOrdersPage() {
                       >
                         <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
                           {item.products?.image_url ? (
-                            <Image
+                            <StorageImage
                               src={item.products.image_url}
                               alt={item.products.title || "Ürün"}
                               fill
-                              className="object-cover"
-                              sizes="56px"
                             />
                           ) : (
                             <div className="flex h-full items-center justify-center text-[10px] text-zinc-400">

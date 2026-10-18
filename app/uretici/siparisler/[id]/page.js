@@ -1,11 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import ImageLightbox from "@/components/ImageLightbox";
+import StorageImage from "@/components/StorageImage";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
 
 // Kargolama sonrası görev biter; doğrudan completed olur
@@ -209,12 +209,10 @@ export default function ProducerOrderDetailPage() {
               <div className="flex items-start gap-3">
                 <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
                   {item.products?.image_url ? (
-                    <Image
+                    <StorageImage
                       src={item.products.image_url}
                       alt={item.products.title}
                       fill
-                      className="object-cover"
-                      sizes="56px"
                     />
                   ) : null}
                 </div>

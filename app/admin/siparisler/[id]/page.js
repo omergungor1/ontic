@@ -1,11 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import ImageLightbox from "@/components/ImageLightbox";
+import StorageImage from "@/components/StorageImage";
 import BackButton from "@/components/BackButton";
 import {
   formatDate,
@@ -570,12 +570,10 @@ export default function AdminOrderDetailPage() {
               >
                 <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
                   {imageUrl ? (
-                    <Image
+                    <StorageImage
                       src={imageUrl}
                       alt={item.product_name || item.products?.title || "Ürün"}
                       fill
-                      className="object-cover"
-                      sizes="56px"
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center text-[10px] text-zinc-400">
@@ -790,12 +788,10 @@ export default function AdminOrderDetailPage() {
                       <div className="flex items-start gap-3">
                         <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-white">
                           {imageUrl ? (
-                            <Image
+                            <StorageImage
                               src={imageUrl}
                               alt={item.product_name || "Ürün"}
                               fill
-                              className="object-cover"
-                              sizes="56px"
                             />
                           ) : (
                             <div className="flex h-full items-center justify-center text-[10px] text-zinc-400">
