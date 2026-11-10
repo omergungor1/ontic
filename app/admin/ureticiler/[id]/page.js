@@ -3,17 +3,28 @@
 import Link from "next/link";
 import StorageImage from "@/components/StorageImage";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import PhoneInput from "@/components/PhoneInput";
 import BackButton from "@/components/BackButton";
+import ProducerPerformancePanel, {
+  fetchProducerAnalytics,
+} from "@/components/ProducerPerformancePanel";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
 import { formatPhoneInput, isValidTrMobile } from "@/lib/phone";
 
 const TABS = [
+  { key: "ayarlar", label: "Ayarlar" },
+  { key: "performans", label: "Performans" },
   { key: "siparisler", label: "Siparişler" },
   { key: "urunler", label: "Ürettiği Ürünler" },
-  { key: "ayarlar", label: "Ayarlar" },
+];
+
+const PERF_RANGES = [
+  { key: "7", label: "7 gün", days: 7 },
+  { key: "14", label: "14 gün", days: 14 },
+  { key: "30", label: "30 gün", days: 30 },
+  { key: "90", label: "90 gün", days: 90 },
 ];
 
 const ORDERS_PAGE_SIZE = 10;
@@ -41,15 +52,17 @@ function statusClass(status) {
 export default function AdminProducerDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const producerId = params?.id;
 
-  const [tab, setTab] = useState("siparisler");
+  const [tab, setTab] = useState("ayarlar");
   const [producer, setProducer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [passwordCopied, setPasswordCopied] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [modalPassword, setModalPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
@@ -60,6 +73,7 @@ export default function AdminProducerDetailPage() {
     city: "",
     district: "",
     iban: "",
+    email: "",
     adminNote: "",
     isActive: true,
   });
@@ -75,6 +89,11 @@ export default function AdminProducerDetailPage() {
   const ordersOffset = useRef(0);
   const ordersLoadingRef = useRef(false);
   const sentinelRef = useRef(null);
+
+  const [perfRange, setPerfRange] = useState("30");
+  const [perfStats, setPerfStats] = useState(null);
+  const [perfLoading, setPerfLoading] = useState(false);
+  const [perfError, setPerfError] = useState("");
 
   async function load() {
     setLoading(true);
@@ -92,6 +111,7 @@ export default function AdminProducerDetailPage() {
         city: data.producer.city || "",
         district: data.producer.district || "",
         iban: data.producer.iban || "",
+        email: data.producer.email || "",
         adminNote: data.producer.admin_note || "",
         isActive: data.producer.is_active,
       });
@@ -172,10 +192,46 @@ export default function AdminProducerDetailPage() {
   }, [producerId]);
 
   useEffect(() => {
+    const requested = searchParams.get("tab");
+    if (TABS.some((item) => item.key === requested)) {
+      setTab(requested);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (tab !== "siparisler" || !producerId) return;
     loadOrders({ reset: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, producerId]);
+
+  useEffect(() => {
+    if (tab !== "performans" || !producerId) return undefined;
+    let cancelled = false;
+    async function loadPerf() {
+      setPerfLoading(true);
+      setPerfError("");
+      try {
+        const range = PERF_RANGES.find((item) => item.key === perfRange);
+        const data = await fetchProducerAnalytics({
+          producerId,
+          days: range?.days ?? 30,
+        });
+        if (cancelled) return;
+        setPerfStats(data.producers?.[0] || null);
+      } catch (err) {
+        if (!cancelled) {
+          setPerfError(err.message);
+          setPerfStats(null);
+        }
+      } finally {
+        if (!cancelled) setPerfLoading(false);
+      }
+    }
+    loadPerf();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, producerId, perfRange]);
 
   useEffect(() => {
     if (tab !== "siparisler") return undefined;
@@ -276,6 +332,8 @@ export default function AdminProducerDetailPage() {
 
   function openPasswordModal() {
     setModalPassword("");
+    setShowPassword(false);
+    setPasswordCopied(false);
     setError("");
     setPasswordModalOpen(true);
   }
@@ -284,6 +342,23 @@ export default function AdminProducerDetailPage() {
     if (passwordSaving) return;
     setPasswordModalOpen(false);
     setModalPassword("");
+    setShowPassword(false);
+    setPasswordCopied(false);
+  }
+
+  async function copyCurrentPassword() {
+    const value = producer?.decrypted_password;
+    if (!value) {
+      setError("Kopyalanacak şifre yok");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      setPasswordCopied(true);
+      window.setTimeout(() => setPasswordCopied(false), 1500);
+    } catch {
+      setError("Şifre kopyalanamadı");
+    }
   }
 
   async function updatePassword() {
@@ -344,14 +419,17 @@ export default function AdminProducerDetailPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="flex min-w-0 items-center gap-3">
           <BackButton
             onClick={() => router.push("/admin/ureticiler")}
             label="Üreticilere dön"
-            className="mb-3"
           />
-          <h1 className="text-2xl font-semibold">{producer.full_name}</h1>
-          <p className="text-zinc-500">@{producer.username}</p>
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-semibold">
+              {producer.full_name}
+            </h1>
+            <p className="truncate text-zinc-500">@{producer.username}</p>
+          </div>
         </div>
         {tab === "ayarlar" ? (
           <button
@@ -501,6 +579,37 @@ export default function AdminProducerDetailPage() {
         </div>
       ) : null}
 
+      {tab === "performans" ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {PERF_RANGES.map((range) => (
+              <button
+                key={range.key}
+                type="button"
+                onClick={() => setPerfRange(range.key)}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+                  perfRange === range.key
+                    ? "bg-orange-600 text-white"
+                    : "bg-zinc-100 text-zinc-700"
+                }`}
+              >
+                {range.label}
+              </button>
+            ))}
+          </div>
+          {perfError ? (
+            <p className="rounded-xl bg-rose-50 px-4 py-2 text-sm text-rose-700">
+              {perfError}
+            </p>
+          ) : null}
+          <ProducerPerformancePanel
+            stats={perfStats}
+            loading={perfLoading}
+            emptyText="Bu üretici için seçili dönemde veri yok"
+          />
+        </div>
+      ) : null}
+
       {tab === "urunler" ? (
         <form onSubmit={saveProducts} className="space-y-4">
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 sm:p-5">
@@ -594,7 +703,38 @@ export default function AdminProducerDetailPage() {
       {tab === "ayarlar" ? (
         <form onSubmit={saveProfile} className="space-y-4">
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 sm:p-5">
-            <h2 className="font-semibold">Profil Bilgileri</h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-semibold">Profil Bilgileri</h2>
+              <button
+                type="button"
+                onClick={openPasswordModal}
+                aria-label="Şifre"
+                title="Şifre"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 text-zinc-600 transition hover:bg-zinc-50 hover:text-zinc-900"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  strokeWidth="1.8"
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M7 11V8a5 5 0 0 1 10 0v3"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                  />
+                  <rect
+                    x="5"
+                    y="11"
+                    width="14"
+                    height="10"
+                    rx="2"
+                    stroke="currentColor"
+                  />
+                </svg>
+              </button>
+            </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="block text-sm">
                 <span className="mb-1 block text-zinc-500">Ad Soyad</span>
@@ -635,7 +775,19 @@ export default function AdminProducerDetailPage() {
                   className="w-full rounded-xl border px-3 py-2.5"
                 />
               </label>
-              <label className="block text-sm sm:col-span-2">
+              <label className="block text-sm">
+                <span className="mb-1 block text-zinc-500">E-posta</span>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, email: e.target.value }))
+                  }
+                  placeholder="ornek@email.com"
+                  className="w-full rounded-xl border px-3 py-2.5"
+                />
+              </label>
+              <label className="block text-sm">
                 <span className="mb-1 block text-zinc-500">IBAN</span>
                 <input
                   value={form.iban}
@@ -676,36 +828,6 @@ export default function AdminProducerDetailPage() {
             </label>
           </div>
 
-          <div className="rounded-2xl border border-zinc-200 bg-white p-4 sm:p-5">
-            <h2 className="font-semibold">Şifre</h2>
-            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs text-zinc-500">Mevcut şifre</p>
-                <p className="font-mono text-sm">
-                  {showPassword
-                    ? producer.decrypted_password || "Şifre çözülemedi"
-                    : "••••••••"}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="rounded-lg border px-3 py-2 text-xs font-medium"
-                >
-                  {showPassword ? "Gizle" : "Şifreyi Göster"}
-                </button>
-                <button
-                  type="button"
-                  onClick={openPasswordModal}
-                  className="rounded-lg bg-zinc-900 px-3 py-2 text-xs font-medium text-white"
-                >
-                  Şifre Değiştir
-                </button>
-              </div>
-            </div>
-          </div>
-
           <button
             type="submit"
             disabled={saving}
@@ -717,23 +839,91 @@ export default function AdminProducerDetailPage() {
       ) : null}
 
       {passwordModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
           <div className="w-full max-w-md space-y-4 rounded-2xl bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-lg font-semibold">Şifre Değiştir</h3>
+                <h3 className="text-lg font-semibold">Şifre</h3>
                 <p className="mt-1 text-sm text-zinc-500">
-                  {producer.full_name || producer.username} için yeni şifre
-                  belirleyin
+                  {producer.full_name || producer.username}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={closePasswordModal}
+                disabled={passwordSaving}
                 className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
               >
                 Kapat
               </button>
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-zinc-500">Mevcut şifre</p>
+                  <p className="mt-0.5 break-all font-mono text-sm text-zinc-900">
+                    {showPassword
+                      ? producer.decrypted_password || "Şifre çözülemedi"
+                      : "••••••••"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={copyCurrentPassword}
+                    aria-label="Şifreyi kopyala"
+                    title={passwordCopied ? "Kopyalandı" : "Kopyala"}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100"
+                  >
+                    {passwordCopied ? (
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        strokeWidth="2"
+                        className="h-4 w-4 text-emerald-600"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M5 13l4 4L19 7"
+                          stroke="currentColor"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        strokeWidth="1.8"
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <rect
+                          x="9"
+                          y="9"
+                          width="11"
+                          height="11"
+                          rx="2"
+                          stroke="currentColor"
+                        />
+                        <path
+                          d="M5 15V5a2 2 0 0 1 2-2h10"
+                          stroke="currentColor"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium"
+                  >
+                    {showPassword ? "Gizle" : "Göster"}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <label className="block text-sm">
@@ -746,7 +936,7 @@ export default function AdminProducerDetailPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") e.preventDefault();
                 }}
-                className="w-full rounded-xl border px-3 py-2"
+                className="w-full rounded-xl border px-3 py-2.5"
                 placeholder="Yeni şifreyi yazın"
               />
             </label>
@@ -758,7 +948,7 @@ export default function AdminProducerDetailPage() {
                 disabled={passwordSaving}
                 className="flex-1 rounded-xl border py-2.5 text-sm font-medium"
               >
-                Vazgeç
+                Kapat
               </button>
               <button
                 type="button"

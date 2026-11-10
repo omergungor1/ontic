@@ -2,13 +2,13 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { clearSupabaseAuthCookies } from "@/lib/supabase/clear-auth-cookies";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
-const LINKS = [
+const MAIN_LINKS = [
   { href: "/admin", label: "Özet" },
   { href: "/admin/analiz", label: "Analiz" },
   { href: "/admin/siparisler", label: "Siparişler" },
@@ -17,6 +17,9 @@ const LINKS = [
   { href: "/admin/ureticiler", label: "Üreticiler" },
   { href: "/admin/stok", label: "Stok" },
   { href: "/admin/kasa", label: "Kasa" },
+];
+
+const OTHER_LINKS = [
   { href: "/admin/mesajlar", label: "Mesajlar", badge: "messages" },
   { href: "/admin/duyurular", label: "Duyurular" },
   { href: "/admin/basvurular", label: "Başvurular", badge: "applications" },
@@ -52,6 +55,25 @@ function CloseIcon(props) {
   );
 }
 
+function ChevronIcon({ open }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth="2"
+      className={`h-3.5 w-3.5 transition ${open ? "rotate-180" : ""}`}
+      aria-hidden="true"
+    >
+      <path
+        d="M6 9l6 6 6-6"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function NavBadge({ active, count, dense }) {
   if (!count) return null;
   return (
@@ -76,8 +98,10 @@ export default function AdminLayout({ children }) {
   const [newContacts, setNewContacts] = useState(0);
   const [pendingProductRequests, setPendingProductRequests] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [otherOpen, setOtherOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const otherRef = useRef(null);
   const { hasUnread, unreadCount } = useUnreadMessages({
     role: "admin",
     clearOnPath: "/admin/mesajlar",
@@ -150,6 +174,7 @@ export default function AdminLayout({ children }) {
 
   useEffect(() => {
     setMenuOpen(false);
+    setOtherOpen(false);
   }, [pathname]);
 
   useEffect(() => {
@@ -165,6 +190,22 @@ export default function AdminLayout({ children }) {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!otherOpen) return undefined;
+    function onPointerDown(event) {
+      if (!otherRef.current?.contains(event.target)) setOtherOpen(false);
+    }
+    function onKeyDown(event) {
+      if (event.key === "Escape") setOtherOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [otherOpen]);
 
   if (pathname === "/admin/giris") {
     return children;
@@ -198,6 +239,12 @@ export default function AdminLayout({ children }) {
       pathname === href || (href !== "/admin" && pathname.startsWith(href))
     );
   }
+
+  const otherBadgeTotal = OTHER_LINKS.reduce(
+    (sum, link) => sum + (badgeCount(link) || 0),
+    0
+  );
+  const otherActive = OTHER_LINKS.some((link) => isActive(link.href));
 
   const alertTotal =
     (hasUnread ? unreadCount || 1 : 0) +
@@ -261,8 +308,8 @@ export default function AdminLayout({ children }) {
           </button>
         </div>
 
-        <nav className="mx-auto hidden max-w-7xl gap-1 px-2 pb-2 lg:flex">
-          {LINKS.map((link) => {
+        <nav className="mx-auto hidden max-w-7xl items-center gap-1 px-2 pb-2 lg:flex">
+          {MAIN_LINKS.map((link) => {
             const active = isActive(link.href);
             return (
               <Link
@@ -279,6 +326,55 @@ export default function AdminLayout({ children }) {
               </Link>
             );
           })}
+
+          <div ref={otherRef} className="relative">
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={otherOpen}
+              onClick={() => setOtherOpen((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium ${
+                otherActive || otherOpen
+                  ? "bg-orange-600 text-white"
+                  : "text-zinc-600 hover:bg-zinc-100"
+              }`}
+            >
+              Diğer
+              <NavBadge
+                active={otherActive || otherOpen}
+                count={otherBadgeTotal}
+              />
+              <ChevronIcon open={otherOpen} />
+            </button>
+
+            {otherOpen ? (
+              <div
+                role="menu"
+                className="absolute left-0 z-50 mt-2 w-60 overflow-hidden rounded-2xl border border-zinc-200 bg-white py-1 shadow-lg"
+              >
+                {OTHER_LINKS.map((link) => {
+                  const active = isActive(link.href);
+                  const count = badgeCount(link);
+                  return (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      role="menuitem"
+                      onClick={() => setOtherOpen(false)}
+                      className={`flex items-center gap-2 px-3 py-2.5 text-sm transition ${
+                        active
+                          ? "bg-orange-50 font-medium text-orange-700"
+                          : "text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1">{link.label}</span>
+                      <NavBadge active={false} count={count} dense />
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
         </nav>
       </header>
 
@@ -312,7 +408,36 @@ export default function AdminLayout({ children }) {
             </div>
 
             <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-3">
-              {LINKS.map((link) => {
+              {MAIN_LINKS.map((link) => {
+                const active = isActive(link.href);
+                const count = badgeCount(link);
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMenuOpen(false)}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium ${
+                      active
+                        ? "bg-orange-50 text-orange-700"
+                        : "text-zinc-700 hover:bg-zinc-50"
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{link.label}</span>
+                    <NavBadge active={false} count={count} dense />
+                  </Link>
+                );
+              })}
+
+              <div className="px-3 pb-1 pt-3">
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                    Diğer
+                  </p>
+                  <NavBadge active={false} count={otherBadgeTotal} dense />
+                </div>
+              </div>
+
+              {OTHER_LINKS.map((link) => {
                 const active = isActive(link.href);
                 const count = badgeCount(link);
                 return (

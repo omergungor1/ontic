@@ -2,9 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import StorageImage from "@/components/StorageImage";
-import { formatPrice } from "@/lib/format";
-import { PAGE_SIZE, storeImage } from "@/lib/storefront";
+import ProductCard from "@/components/store/ProductCard";
+import { PAGE_SIZE } from "@/lib/storefront";
 
 function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) =>
@@ -194,42 +193,7 @@ export default function Catalog({ products }) {
         <ul className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
           {visible.map((product) => (
             <li key={product.id}>
-              <Link
-                href={`/urun/${product.id}`}
-                className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm"
-              >
-                <div className="relative aspect-square bg-zinc-100">
-                  {product.image ? (
-                    <StorageImage
-                      src={storeImage(product.image, 480)}
-                      alt={product.title}
-                      fill
-                    />
-                  ) : (
-                    <span className="absolute inset-0 flex items-center justify-center text-sm text-zinc-400">
-                      Görsel yok
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-1 flex-col p-3">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                    {product.category || product.brand || "Ontic"}
-                  </p>
-                  <h2 className="mt-1 line-clamp-2 text-sm font-semibold leading-snug">
-                    {product.title}
-                  </h2>
-                  <div className="mt-auto pt-3">
-                    {product.listPrice > product.price && product.price > 0 ? (
-                      <p className="text-xs text-zinc-400 line-through">
-                        {formatPrice(product.listPrice)}
-                      </p>
-                    ) : null}
-                    <p className="text-sm font-semibold text-orange-700">
-                      {product.price > 0 ? formatPrice(product.price) : "Fiyat sorunuz"}
-                    </p>
-                  </div>
-                </div>
-              </Link>
+              <ProductCard product={product} />
             </li>
           ))}
         </ul>

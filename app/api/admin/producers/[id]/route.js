@@ -57,12 +57,24 @@ export async function PATCH(request, { params }) {
       body.phone = phone;
     }
 
+    if (body.email !== undefined) {
+      const email = String(body.email || "").trim().toLowerCase();
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return NextResponse.json(
+          { error: "Geçerli bir e-posta girin" },
+          { status: 400 }
+        );
+      }
+      body.email = email || null;
+    }
+
     const updates = {
       full_name: body.fullName,
       phone: body.phone,
       city: body.city,
       district: body.district,
       iban: body.iban,
+      email: body.email,
       admin_note: body.adminNote,
       is_active: body.isActive,
       updated_at: new Date().toISOString(),
@@ -81,7 +93,14 @@ export async function PATCH(request, { params }) {
     }
 
     const { error } = await admin.from("profiles").update(updates).eq("id", id);
-    if (error) throw error;
+    if (error) {
+      if (/email/i.test(error.message || "")) {
+        throw new Error(
+          "profiles.email sütunu yok. Supabase SQL Editor'da şunu çalıştırın: alter table public.profiles add column if not exists email text;"
+        );
+      }
+      throw error;
+    }
 
     if (Array.isArray(body.productAssignments)) {
       for (const item of body.productAssignments) {

@@ -55,6 +55,14 @@ export default function AdminHomePage() {
     setSyncing(type);
     setMessage("");
     try {
+      if (type === "test-mail") {
+        const res = await fetch("/api/admin/test-mail", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Test maili gönderilemedi");
+        setMessage("Test maili omergungorco@gmail.com adresine gönderildi");
+        return;
+      }
+
       const res = await fetch("/api/admin/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -132,6 +140,14 @@ export default function AdminHomePage() {
             {syncing === "orders"
               ? "Siparişler çekiliyor..."
               : "Siparişleri Sync Et (30 gün)"}
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(syncing)}
+            onClick={() => sync("test-mail")}
+            className="ml-auto rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+          >
+            {syncing === "test-mail" ? "Mail gönderiliyor..." : "Test Mail"}
           </button>
         </div>
         {message ? <p className="mt-3 text-sm text-zinc-700">{message}</p> : null}

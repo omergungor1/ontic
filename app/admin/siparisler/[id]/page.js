@@ -53,6 +53,50 @@ function productUnitEarning(item) {
   return String(price);
 }
 
+function addressValue(address, keys) {
+  if (!address || typeof address !== "object") return "";
+  for (const key of keys) {
+    const value = address[key];
+    if (value != null && String(value).trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function formatAddressBlock(address) {
+  if (!address || typeof address !== "object") return null;
+  const name =
+    addressValue(address, ["fullName"]) ||
+    [address.firstName, address.lastName].filter(Boolean).join(" ");
+  const lines = [
+    name,
+    addressValue(address, ["company"]),
+    addressValue(address, ["fullAddress"]),
+    !address.fullAddress
+      ? [
+          addressValue(address, ["address1"]),
+          addressValue(address, ["address2"]),
+          addressValue(address, ["neighborhood"]),
+          [address.district, address.city].filter(Boolean).join(" / "),
+          addressValue(address, ["postalCode"]),
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "",
+    addressValue(address, ["phone"]),
+  ].filter(Boolean);
+  return lines.length ? lines.join("\n") : null;
+}
+
+function DetailRow({ label, value }) {
+  if (value == null || value === "") return null;
+  return (
+    <div className="grid gap-0.5 sm:grid-cols-[9rem_1fr] sm:gap-3">
+      <dt className="text-xs font-medium text-zinc-500">{label}</dt>
+      <dd className="whitespace-pre-line text-sm text-zinc-800">{value}</dd>
+    </div>
+  );
+}
+
 export default function AdminOrderDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -71,6 +115,8 @@ export default function AdminOrderDetailPage() {
   const [cargoPreviewUrl, setCargoPreviewUrl] = useState("");
   const [orderCancelOpen, setOrderCancelOpen] = useState(false);
   const [orderCancelSaving, setOrderCancelSaving] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
   const cargoFileRefs = useRef({});
 
   // Dağıtım modalı — ürün bazlı: her kalemde ayrı üretici
@@ -497,12 +543,37 @@ export default function AdminOrderDetailPage() {
             label="Siparişlere dön"
             className="mb-3"
           />
-          <h1 className="text-2xl font-semibold">
-            Sipariş {order.order_number}
-          </h1>
+          <button
+            type="button"
+            onClick={() => {
+              setShowRaw(false);
+              setDetailOpen(true);
+            }}
+            className="group text-left"
+            title="Sipariş detayını göster"
+          >
+            <h1 className="text-2xl font-semibold transition group-hover:text-orange-700">
+              Sipariş {order.order_number}
+              <span className="ml-2 align-middle text-sm font-medium text-zinc-400 group-hover:text-orange-600">
+                Detay
+              </span>
+            </h1>
+          </button>
           <p className="text-zinc-500">
             {order.customer_first_name} {order.customer_last_name} ·{" "}
             {formatDate(order.order_date)}
+            {(() => {
+              const city =
+                order.shipment_address?.city ||
+                order.raw?.shipmentAddress?.city;
+              if (!city) return "";
+              const cityCode =
+                order.shipment_address?.cityCode ??
+                order.raw?.shipmentAddress?.cityCode;
+              return cityCode != null && cityCode !== ""
+                ? ` · ${city} (${cityCode})`
+                : ` · ${city}`;
+            })()}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1097,6 +1168,147 @@ export default function AdminOrderDetailPage() {
         alt="Kargo kodu"
         onClose={() => setCargoPreviewUrl("")}
       />
+
+      {detailOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-4 sm:items-center">
+          <div
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-detail-title"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3
+                  id="order-detail-title"
+                  className="text-lg font-semibold text-zinc-900"
+                >
+                  Sipariş {order.order_number}
+                </h3>
+                <p className="text-sm text-zinc-500">
+                  Trendyol sipariş bilgileri
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailOpen(false)}
+                className="rounded-full px-3 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
+              >
+                Kapat
+              </button>
+            </div>
+
+            <dl className="mt-4 space-y-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <DetailRow
+                label="Müşteri"
+                value={[order.customer_first_name, order.customer_last_name]
+                  .filter(Boolean)
+                  .join(" ")}
+              />
+              <DetailRow label="E-posta" value={order.customer_email} />
+              <DetailRow
+                label="Sipariş tarihi"
+                value={formatDate(order.order_date)}
+              />
+              <DetailRow
+                label="Durum"
+                value={
+                  order.shipment_package_status ||
+                  order.status ||
+                  displayStatus
+                }
+              />
+              <DetailRow
+                label="Paket ID"
+                value={order.trendyol_package_id}
+              />
+              <DetailRow
+                label="Kargo"
+                value={order.cargo_provider_name}
+              />
+              <DetailRow
+                label="Takip no"
+                value={order.cargo_tracking_number}
+              />
+              {order.cargo_tracking_link ? (
+                <div className="grid gap-0.5 sm:grid-cols-[9rem_1fr] sm:gap-3">
+                  <dt className="text-xs font-medium text-zinc-500">
+                    Takip linki
+                  </dt>
+                  <dd className="text-sm">
+                    <a
+                      href={order.cargo_tracking_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="break-all font-medium text-orange-700 hover:underline"
+                    >
+                      {order.cargo_tracking_link}
+                    </a>
+                  </dd>
+                </div>
+              ) : null}
+              <DetailRow
+                label="Brüt"
+                value={formatPrice(order.gross_amount)}
+              />
+              <DetailRow
+                label="Komisyon"
+                value={formatPrice(order.commission_amount)}
+              />
+              <DetailRow
+                label="Net"
+                value={formatPrice(order.net_amount)}
+              />
+            </dl>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-zinc-200 p-4">
+                <h4 className="text-sm font-semibold text-zinc-900">
+                  Teslimat adresi
+                </h4>
+                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-zinc-700">
+                  {formatAddressBlock(order.shipment_address) ||
+                    "Adres kaydı yok"}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 p-4">
+                <h4 className="text-sm font-semibold text-zinc-900">
+                  Fatura adresi
+                </h4>
+                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-zinc-700">
+                  {formatAddressBlock(order.invoice_address) ||
+                    "Adres kaydı yok"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setShowRaw((prev) => !prev)}
+                className="text-sm font-medium text-orange-700 hover:text-orange-800"
+              >
+                {showRaw ? "Ham veriyi gizle" : "Ham Trendyol verisini göster"}
+              </button>
+              {showRaw ? (
+                <pre className="mt-2 max-h-80 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-100">
+                  {JSON.stringify(order.raw || order, null, 2)}
+                </pre>
+              ) : null}
+            </div>
+
+            <div className="mt-5">
+              <button
+                type="button"
+                onClick={() => setDetailOpen(false)}
+                className="w-full rounded-xl border border-zinc-200 py-2.5 text-sm font-medium"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {orderCancelOpen ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">

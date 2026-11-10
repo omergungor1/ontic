@@ -28,15 +28,18 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const from = searchParams.get("from");
     const to = searchParams.get("to");
+    const producerId = searchParams.get("producerId");
     const admin = createAdminClient();
 
-    const producers = await fetchAll(() =>
-      admin
+    const producers = await fetchAll(() => {
+      let q = admin
         .from("profiles")
         .select("id, full_name, username, is_active, city")
         .eq("role", "producer")
-        .order("full_name", { ascending: true })
-    );
+        .order("full_name", { ascending: true });
+      if (producerId) q = q.eq("id", producerId);
+      return q;
+    });
 
     let ordersQuery = () => {
       let q = admin
@@ -45,6 +48,7 @@ export async function GET(request) {
           "id, producer_id, status, producer_earning, created_at, updated_at"
         )
         .order("created_at", { ascending: false });
+      if (producerId) q = q.eq("producer_id", producerId);
       if (from) q = q.gte("created_at", from);
       if (to) q = q.lte("created_at", to);
       return q;
@@ -68,11 +72,13 @@ export async function GET(request) {
       }
     }
 
-    const producerProducts = await fetchAll(() =>
-      admin
+    const producerProducts = await fetchAll(() => {
+      let q = admin
         .from("producer_products")
-        .select("producer_id, product_id, is_active, stock_quantity")
-    );
+        .select("producer_id, product_id, is_active, stock_quantity");
+      if (producerId) q = q.eq("producer_id", producerId);
+      return q;
+    });
 
     const analytics = buildProducerAnalytics({
       producers,

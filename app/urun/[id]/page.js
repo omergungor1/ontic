@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import ProductBuy from "@/components/store/ProductBuy";
+import SimilarProducts from "@/components/store/SimilarProducts";
 import StoreShell from "@/components/store/StoreShell";
-import { getProduct } from "@/lib/catalog";
+import { getProduct, getSimilarProducts } from "@/lib/catalog";
 
 export const revalidate = 600;
 
@@ -20,9 +21,12 @@ export default async function ProductPage({ params }) {
   const product = await getProduct(id);
   if (!product) notFound();
 
+  const similar = await getSimilarProducts(product, 8);
+
   return (
     <StoreShell>
       <ProductBuy product={product} />
+      <SimilarProducts products={similar} category={product.category} />
     </StoreShell>
   );
 }
