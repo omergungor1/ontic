@@ -17,9 +17,43 @@ function daysAgoIso(days) {
 
 const RANGES = [
   { key: "7", label: "7 gün", days: 7 },
+  { key: "14", label: "14 gün", days: 14 },
   { key: "30", label: "30 gün", days: 30 },
   { key: "90", label: "90 gün", days: 90 },
   { key: "all", label: "Tümü", days: null },
+];
+
+const REPORTS = [
+  {
+    key: "assign",
+    label: "Kime vereyim?",
+    hint: "Siparişi kime ürettireceğinize karar vermek için önerilen sıra",
+  },
+  {
+    key: "shipping",
+    label: "Kargo",
+    hint: "En hızlı ve en yavaş kargolayan üreticiler",
+  },
+  {
+    key: "stock",
+    label: "Stok",
+    hint: "Stok doluluğu yüksek ve düşük üreticiler",
+  },
+  {
+    key: "earnings",
+    label: "Gelir",
+    hint: "Seçili dönemde en çok ve en az kazandırdığınız üreticiler",
+  },
+  {
+    key: "workload",
+    label: "İş yükü",
+    hint: "Elinde açık iş olanlar ve şu an boş olanlar",
+  },
+  {
+    key: "overview",
+    label: "Genel",
+    hint: "Dönem özeti ve genel performans sıralaması",
+  },
 ];
 
 function pct(value) {
@@ -29,23 +63,36 @@ function pct(value) {
   })}`;
 }
 
-function ScoreBar({ score }) {
-  const width = Math.max(0, Math.min(100, Number(score) || 0));
+function assignScore(row) {
+  if (!row.isActive) return -1000;
+  const completion = row.completionRate ?? 40;
+  const fill = row.stockFillRate ?? 0;
+  const speed =
+    row.avgShipHours == null
+      ? 35
+      : Math.max(0, 50 - Math.min(50, row.avgShipHours / 2));
+  const capacity = Math.max(0, 25 - row.activeOrders * 8);
+  const history = Math.min(15, row.completedOrders * 1.2);
+  const failPenalty = Math.min(20, (row.rejectionRate ?? 0) * 0.35);
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100">
-      <div
-        className="h-full rounded-full bg-orange-500 transition-all"
-        style={{ width: `${width}%` }}
-      />
-    </div>
+    completion * 0.25 +
+    fill * 0.25 +
+    speed +
+    capacity +
+    history -
+    failPenalty
   );
+}
+
+function rankLabel(index) {
+  return `${index + 1}.`;
 }
 
 function SummaryCard({ label, value, hint }) {
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-4 sm:p-5">
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
       <p className="text-sm text-zinc-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">
+      <p className="mt-1.5 text-2xl font-semibold tracking-tight text-zinc-900">
         {value}
       </p>
       {hint ? <p className="mt-1 text-xs text-zinc-500">{hint}</p> : null}
@@ -53,40 +100,87 @@ function SummaryCard({ label, value, hint }) {
   );
 }
 
-function MiniLeader({ title, rows, empty, renderValue }) {
+function Badge({ children, tone = "zinc" }) {
+  const tones = {
+    zinc: "bg-zinc-100 text-zinc-700",
+    green: "bg-emerald-50 text-emerald-700",
+    amber: "bg-amber-50 text-amber-800",
+    rose: "bg-rose-50 text-rose-700",
+    orange: "bg-orange-50 text-orange-800",
+  };
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-4 sm:p-5">
-      <h3 className="font-semibold text-zinc-900">{title}</h3>
+    <span
+      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${tones[tone]}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function ProducerRow({ row, index, primary, secondary, badges = [] }) {
+  return (
+    <li className="flex items-start gap-3 border-b border-zinc-100 px-4 py-3 last:border-b-0 sm:px-5">
+      <span className="mt-0.5 w-7 shrink-0 text-sm font-semibold text-zinc-400">
+        {rankLabel(index)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/admin/ureticiler/${row.id}`}
+            className="truncate font-medium text-zinc-900 hover:text-orange-700"
+          >
+            {row.fullName}
+          </Link>
+          {!row.isActive ? <Badge>Pasif</Badge> : null}
+          {badges.map((badge) => (
+            <Badge key={badge.label} tone={badge.tone}>
+              {badge.label}
+            </Badge>
+          ))}
+        </div>
+        <p className="mt-0.5 truncate text-xs text-zinc-500">
+          {[row.username ? `@${row.username}` : null, row.city]
+            .filter(Boolean)
+            .join(" · ") || "—"}
+        </p>
+        {secondary ? (
+          <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+            {secondary}
+          </p>
+        ) : null}
+      </div>
+      <div className="shrink-0 text-right">
+        <p className="text-sm font-semibold text-zinc-900">{primary}</p>
+      </div>
+    </li>
+  );
+}
+
+function RankList({ title, rows, empty, renderPrimary, renderSecondary, badgesFor }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+      <div className="border-b border-zinc-100 px-4 py-3 sm:px-5">
+        <h3 className="font-semibold text-zinc-900">{title}</h3>
+      </div>
       {rows.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">{empty}</p>
+        <p className="px-4 py-8 text-center text-sm text-zinc-500 sm:px-5">
+          {empty}
+        </p>
       ) : (
-        <ul className="mt-3 space-y-2.5">
+        <ul>
           {rows.map((row, index) => (
-            <li
+            <ProducerRow
               key={row.id}
-              className="flex items-center justify-between gap-3 text-sm"
-            >
-              <div className="min-w-0">
-                <Link
-                  href={`/admin/ureticiler/${row.id}`}
-                  className="truncate font-medium text-zinc-900 hover:text-orange-700"
-                >
-                  {index + 1}. {row.fullName}
-                </Link>
-                {row.username ? (
-                  <p className="truncate text-xs text-zinc-500">
-                    @{row.username}
-                  </p>
-                ) : null}
-              </div>
-              <span className="shrink-0 font-semibold text-zinc-800">
-                {renderValue(row)}
-              </span>
-            </li>
+              row={row}
+              index={index}
+              primary={renderPrimary(row)}
+              secondary={renderSecondary?.(row)}
+              badges={badgesFor?.(row) || []}
+            />
           ))}
         </ul>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -94,11 +188,12 @@ export default function AdminAnalyticsPage() {
   const [rangeKey, setRangeKey] = useState("30");
   const [from, setFrom] = useState(daysAgoIso(30));
   const [to, setTo] = useState(todayIso());
+  const [customOpen, setCustomOpen] = useState(false);
+  const [reportKey, setReportKey] = useState("assign");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState("score");
 
   async function load({ nextFrom = from, nextTo = to } = {}) {
     setLoading(true);
@@ -132,6 +227,7 @@ export default function AdminAnalyticsPage() {
 
   function applyRange(key) {
     setRangeKey(key);
+    setCustomOpen(false);
     const range = RANGES.find((r) => r.key === key);
     if (!range || range.days == null) {
       setFrom("");
@@ -152,41 +248,366 @@ export default function AdminAnalyticsPage() {
     load({ nextFrom: from, nextTo: to });
   }
 
-  const producers = useMemo(() => {
+  const report = REPORTS.find((item) => item.key === reportKey) || REPORTS[0];
+  const summary = data?.summary;
+
+  const baseList = useMemo(() => {
     const list = data?.producers || [];
     const term = search.trim().toLowerCase();
-    let filtered = list;
-    if (term) {
-      filtered = list.filter(
-        (p) =>
-          p.fullName?.toLowerCase().includes(term) ||
-          p.username?.toLowerCase().includes(term) ||
-          p.city?.toLowerCase().includes(term)
-      );
-    }
+    if (!term) return list;
+    return list.filter(
+      (p) =>
+        p.fullName?.toLowerCase().includes(term) ||
+        p.username?.toLowerCase().includes(term) ||
+        p.city?.toLowerCase().includes(term)
+    );
+  }, [data, search]);
 
-    const sorted = [...filtered];
-    sorted.sort((a, b) => {
-      switch (sortKey) {
-        case "avgShipHours":
-          return (a.avgShipHours ?? 9999) - (b.avgShipHours ?? 9999);
-        case "stockFillRate":
-          return (b.stockFillRate ?? -1) - (a.stockFillRate ?? -1);
-        case "completedOrders":
-          return b.completedOrders - a.completedOrders;
-        case "totalEarning":
-          return b.totalEarning - a.totalEarning;
-        case "name":
-          return String(a.fullName).localeCompare(String(b.fullName), "tr");
-        case "score":
-        default:
-          return b.score - a.score;
+  const reportView = useMemo(() => {
+    const active = baseList.filter((p) => p.isActive);
+    const withShip = [...baseList].filter((p) => p.avgShipHours != null);
+    const withStock = [...baseList].filter((p) => p.assignedProducts > 0);
+    const withEarn = [...baseList].filter((p) => p.totalEarning > 0);
+
+    switch (reportKey) {
+      case "shipping":
+        return {
+          cards: [
+            {
+              label: "Ort. kargo",
+              value: formatDurationHours(summary?.avgShipHours),
+              hint: `Medyan ${formatDurationHours(summary?.medianShipHours)}`,
+            },
+            {
+              label: "Ölçülen üretici",
+              value: withShip.length,
+              hint: "En az 1 tamamlanan siparişi olan",
+            },
+            {
+              label: "Tamamlanan",
+              value: summary?.completedOrders ?? 0,
+              hint: "Seçili dönem",
+            },
+          ],
+          lists: [
+            {
+              title: "En hızlı kargolayanlar",
+              rows: [...withShip]
+                .sort((a, b) => a.avgShipHours - b.avgShipHours)
+                .slice(0, 20),
+              empty: "Henüz kargo süresi ölçülemedi",
+              primary: (row) => formatDurationHours(row.avgShipHours),
+              secondary: (row) =>
+                `${row.completedOrders} tamamlanan · medyan ${formatDurationHours(row.medianShipHours)}`,
+            },
+            {
+              title: "En yavaş kargolayanlar",
+              rows: [...withShip]
+                .sort((a, b) => b.avgShipHours - a.avgShipHours)
+                .slice(0, 20),
+              empty: "Henüz kargo süresi ölçülemedi",
+              primary: (row) => formatDurationHours(row.avgShipHours),
+              secondary: (row) =>
+                `${row.completedOrders} tamamlanan · açık iş ${row.activeOrders}`,
+              badgesFor: (row) =>
+                row.avgShipHours >= 72
+                  ? [{ label: "Yavaş", tone: "rose" }]
+                  : [],
+            },
+          ],
+        };
+
+      case "stock":
+        return {
+          cards: [
+            {
+              label: "Stok doluluk",
+              value: pct(summary?.stockFillRate),
+              hint: `${summary?.stockedProducts || 0}/${summary?.assignedProducts || 0} ürün`,
+            },
+            {
+              label: "Boş stok",
+              value: summary?.zeroStockProducts ?? 0,
+              hint: "Aktif atamada stok = 0",
+            },
+            {
+              label: "Toplam stok",
+              value: summary?.totalStock ?? 0,
+              hint: "Tüm aktif ürünler",
+            },
+          ],
+          lists: [
+            {
+              title: "Stok doluluğu yüksek",
+              rows: [...withStock]
+                .sort(
+                  (a, b) =>
+                    (b.stockFillRate ?? -1) - (a.stockFillRate ?? -1) ||
+                    b.totalStock - a.totalStock
+                )
+                .slice(0, 20),
+              empty: "Aktif ürün ataması yok",
+              primary: (row) => pct(row.stockFillRate),
+              secondary: (row) =>
+                `${row.stockedProducts}/${row.assignedProducts} ürün · ${row.totalStock} adet`,
+              badgesFor: (row) =>
+                (row.stockFillRate ?? 0) >= 80
+                  ? [{ label: "Hazır", tone: "green" }]
+                  : [],
+            },
+            {
+              title: "Stok doluluğu düşük",
+              rows: [...withStock]
+                .sort(
+                  (a, b) =>
+                    (a.stockFillRate ?? 101) - (b.stockFillRate ?? 101) ||
+                    b.zeroStockProducts - a.zeroStockProducts
+                )
+                .slice(0, 20),
+              empty: "Aktif ürün ataması yok",
+              primary: (row) => pct(row.stockFillRate),
+              secondary: (row) =>
+                `${row.zeroStockProducts} boş ürün · ${row.totalStock} adet stok`,
+              badgesFor: (row) =>
+                (row.stockFillRate ?? 0) < 30
+                  ? [{ label: "Kritik", tone: "rose" }]
+                  : [{ label: "Düşük", tone: "amber" }],
+            },
+          ],
+        };
+
+      case "earnings":
+        return {
+          cards: [
+            {
+              label: "Toplam üretici geliri",
+              value: formatPrice(summary?.totalEarning || 0),
+              hint: "Seçili dönem",
+            },
+            {
+              label: "Kazançlı üretici",
+              value: withEarn.length,
+              hint: "Bu dönemde gelir alan",
+            },
+            {
+              label: "Sipariş",
+              value: summary?.totalOrders ?? 0,
+              hint: `${summary?.completedOrders || 0} tamamlandı`,
+            },
+          ],
+          lists: [
+            {
+              title: "En çok kazandırdıklarınız",
+              rows: [...baseList]
+                .sort((a, b) => b.totalEarning - a.totalEarning)
+                .filter((row) => row.totalEarning > 0)
+                .slice(0, 25),
+              empty: "Bu dönemde üretici kazancı yok",
+              primary: (row) => formatPrice(row.totalEarning),
+              secondary: (row) =>
+                `${row.completedOrders} tamamlanan · ${row.shippedUnits} adet sevk`,
+              badgesFor: () => [{ label: "Gelir", tone: "green" }],
+            },
+            {
+              title: "En az kazandırdıklarınız",
+              rows: [...baseList]
+                .filter((row) => row.totalOrders > 0)
+                .sort((a, b) => a.totalEarning - b.totalEarning)
+                .slice(0, 25),
+              empty: "Bu dönemde sipariş yok",
+              primary: (row) => formatPrice(row.totalEarning),
+              secondary: (row) =>
+                `${row.totalOrders} sipariş · ${row.completedOrders} tamamlanan`,
+            },
+          ],
+        };
+
+      case "workload": {
+        const busy = [...active]
+          .filter((p) => p.activeOrders > 0)
+          .sort((a, b) => b.activeOrders - a.activeOrders);
+        const free = [...active]
+          .filter((p) => p.activeOrders === 0)
+          .sort(
+            (a, b) =>
+              (b.stockFillRate ?? -1) - (a.stockFillRate ?? -1) ||
+              b.completedOrders - a.completedOrders
+          );
+        return {
+          cards: [
+            {
+              label: "Açık sipariş",
+              value: summary?.activeOrders ?? 0,
+              hint: "Üreticilerde bekleyen iş",
+            },
+            {
+              label: "İşi olan",
+              value: busy.length,
+              hint: "Aktif üretici",
+            },
+            {
+              label: "Boş üretici",
+              value: free.length,
+              hint: "Açık siparişi yok",
+            },
+          ],
+          lists: [
+            {
+              title: "Elinde iş olanlar",
+              rows: busy.slice(0, 25),
+              empty: "Açık işi olan üretici yok",
+              primary: (row) => `${row.activeOrders} açık`,
+              secondary: (row) =>
+                `Tamamlama ${pct(row.completionRate)} · kargo ${formatDurationHours(row.avgShipHours)}`,
+              badgesFor: (row) =>
+                row.activeOrders >= 3
+                  ? [{ label: "Yoğun", tone: "amber" }]
+                  : [{ label: "İş var", tone: "orange" }],
+            },
+            {
+              title: "Şu an boş olanlar",
+              rows: free.slice(0, 25),
+              empty: "Boş üretici yok",
+              primary: (row) => pct(row.stockFillRate),
+              secondary: (row) =>
+                `Stok ${row.totalStock} adet · geçmiş ${row.completedOrders} tamamlanan`,
+              badgesFor: () => [{ label: "Müsait", tone: "green" }],
+            },
+          ],
+        };
       }
-    });
-    return sorted;
-  }, [data, search, sortKey]);
 
-  const summary = data?.summary;
+      case "overview":
+        return {
+          cards: [
+            {
+              label: "Aktif üretici",
+              value: summary?.activeProducerCount ?? 0,
+              hint: `Toplam ${summary?.producerCount || 0}`,
+            },
+            {
+              label: "Tamamlanma",
+              value: pct(summary?.completionRate),
+              hint: `${summary?.completedOrders || 0} tamam · ${summary?.failedOrders || 0} red/iptal`,
+            },
+            {
+              label: "Üretici geliri",
+              value: formatPrice(summary?.totalEarning || 0),
+              hint: "Seçili dönem",
+            },
+            {
+              label: "Stok doluluk",
+              value: pct(summary?.stockFillRate),
+              hint: formatDurationHours(summary?.avgShipHours),
+            },
+          ],
+          lists: [
+            {
+              title: "Genel performans sırası",
+              rows: [...baseList]
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 40),
+              empty: "Üretici bulunamadı",
+              primary: (row) => `Skor ${row.score}`,
+              secondary: (row) =>
+                `${row.completedOrders} tamam · stok ${pct(row.stockFillRate)} · kargo ${formatDurationHours(row.avgShipHours)} · ${formatPrice(row.totalEarning)}`,
+            },
+          ],
+        };
+
+      case "assign":
+      default: {
+        const ranked = [...active]
+          .map((row) => ({ ...row, assignScore: assignScore(row) }))
+          .sort((a, b) => b.assignScore - a.assignScore);
+        const top = ranked.slice(0, 25);
+        const avoid = [...ranked]
+          .filter(
+            (row) =>
+              row.activeOrders >= 3 ||
+              (row.stockFillRate === 0 && row.assignedProducts > 0) ||
+              (row.avgShipHours != null && row.avgShipHours >= 96) ||
+              (row.rejectionRate != null && row.rejectionRate >= 25)
+          )
+          .sort((a, b) => {
+            const risk = (row) =>
+              (row.activeOrders >= 3 ? 40 : 0) +
+              (row.stockFillRate === 0 ? 30 : 0) +
+              (row.avgShipHours != null && row.avgShipHours >= 96 ? 25 : 0) +
+              (row.rejectionRate != null && row.rejectionRate >= 25 ? 20 : 0);
+            return risk(b) - risk(a);
+          })
+          .slice(0, 15);
+        return {
+          cards: [
+            {
+              label: "Önerilen üretici",
+              value: top.filter((row) => row.assignScore > 40).length,
+              hint: "Müsait + stok + hız dengesi",
+            },
+            {
+              label: "Boş kapasite",
+              value: active.filter((p) => p.activeOrders === 0).length,
+              hint: "Açık işi olmayan aktif üretici",
+            },
+            {
+              label: "Dikkat",
+              value: avoid.length,
+              hint: "Yoğun, yavaş veya stoksuz",
+            },
+          ],
+          lists: [
+            {
+              title: "Önce bunlara verin",
+              rows: top,
+              empty: "Aktif üretici yok",
+              primary: (row) =>
+                row.activeOrders === 0 ? "Müsait" : `${row.activeOrders} açık`,
+              secondary: (row) =>
+                `Stok ${pct(row.stockFillRate)} · kargo ${formatDurationHours(row.avgShipHours)} · tamam ${pct(row.completionRate)} · ${formatPrice(row.totalEarning)}`,
+              badgesFor: (row) => {
+                const badges = [];
+                if (row.activeOrders === 0) {
+                  badges.push({ label: "Boş", tone: "green" });
+                }
+                if ((row.stockFillRate ?? 0) >= 70) {
+                  badges.push({ label: "Stoklu", tone: "orange" });
+                }
+                if (row.avgShipHours != null && row.avgShipHours <= 36) {
+                  badges.push({ label: "Hızlı", tone: "green" });
+                }
+                return badges;
+              },
+            },
+            {
+              title: "Şimdilik sakının",
+              rows: avoid,
+              empty: "Kritik uyarı yok",
+              primary: (row) =>
+                row.activeOrders > 0
+                  ? `${row.activeOrders} açık`
+                  : pct(row.stockFillRate),
+              secondary: (row) =>
+                `Kargo ${formatDurationHours(row.avgShipHours)} · red ${pct(row.rejectionRate)} · stok ${pct(row.stockFillRate)}`,
+              badgesFor: (row) => {
+                const badges = [];
+                if (row.activeOrders >= 3) {
+                  badges.push({ label: "Yoğun", tone: "amber" });
+                }
+                if ((row.stockFillRate ?? 100) < 20) {
+                  badges.push({ label: "Stoksuz", tone: "rose" });
+                }
+                if ((row.avgShipHours ?? 0) >= 96) {
+                  badges.push({ label: "Yavaş", tone: "rose" });
+                }
+                return badges;
+              },
+            },
+          ],
+        };
+      }
+    }
+  }, [baseList, reportKey, summary]);
 
   return (
     <div className="w-full max-w-full space-y-5 overflow-x-hidden">
@@ -194,7 +615,7 @@ export default function AdminAnalyticsPage() {
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Analiz & İstatistik</h1>
           <p className="text-zinc-500">
-            Üretici performansı, kargo süreleri ve stok doluluk oranı
+            Siparişi kime vereceğinizi seçmek için üretici raporları
           </p>
         </div>
         <button
@@ -208,13 +629,16 @@ export default function AdminAnalyticsPage() {
       </div>
 
       <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-        <div className="flex flex-wrap gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Dönem
+        </p>
+        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
           {RANGES.map((range) => (
             <button
               key={range.key}
               type="button"
               onClick={() => applyRange(range.key)}
-              className={`rounded-full px-3 py-1.5 text-sm font-medium ${
+              className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${
                 rangeKey === range.key
                   ? "bg-orange-600 text-white"
                   : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
@@ -223,39 +647,82 @@ export default function AdminAnalyticsPage() {
               {range.label}
             </button>
           ))}
-        </div>
-        <form
-          onSubmit={applyCustomRange}
-          className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end"
-        >
-          <label className="block text-sm text-zinc-600">
-            Başlangıç
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              className="mt-1 block w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500 sm:w-44"
-            />
-          </label>
-          <label className="block text-sm text-zinc-600">
-            Bitiş
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              className="mt-1 block w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500 sm:w-44"
-            />
-          </label>
           <button
-            type="submit"
-            className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white"
+            type="button"
+            onClick={() => setCustomOpen((open) => !open)}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${
+              rangeKey === "custom" || customOpen
+                ? "bg-zinc-900 text-white"
+                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+            }`}
           >
-            Uygula
+            Özel
           </button>
-        </form>
-        <p className="mt-2 text-xs text-zinc-500">
-          Kargo süresi: atama anından tamamlanma/kargolanma anına kadar geçen
-          süre. Stok doluluk: stoğu olan aktif ürün atamalarının oranı.
+        </div>
+
+        {customOpen ? (
+          <form
+            onSubmit={applyCustomRange}
+            className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]"
+          >
+            <label className="block text-sm text-zinc-600">
+              Başlangıç
+              <input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="mt-1 block w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </label>
+            <label className="block text-sm text-zinc-600">
+              Bitiş
+              <input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="mt-1 block w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </label>
+            <button
+              type="submit"
+              className="rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white sm:self-end"
+            >
+              Uygula
+            </button>
+          </form>
+        ) : null}
+
+        <p className="mt-4 text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Rapor
+        </p>
+        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+          {REPORTS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setReportKey(item.key)}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium ${
+                reportKey === item.key
+                  ? "bg-zinc-900 text-white"
+                  : "border border-zinc-200 bg-white text-zinc-700"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-sm text-zinc-600">{report.hint}</p>
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Üretici ara"
+          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500 sm:max-w-xs"
+        />
+        <p className="text-sm text-zinc-500">
+          {loading ? "Yükleniyor..." : `${baseList.length} üretici`}
         </p>
       </div>
 
@@ -271,200 +738,39 @@ export default function AdminAnalyticsPage() {
 
       {summary ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryCard
-              label="Aktif üretici"
-              value={summary.activeProducerCount}
-              hint={`Toplam ${summary.producerCount} üretici`}
-            />
-            <SummaryCard
-              label="Tamamlanma oranı"
-              value={pct(summary.completionRate)}
-              hint={`${summary.completedOrders} tamamlandı · ${summary.failedOrders} iptal/red`}
-            />
-            <SummaryCard
-              label="Ort. kargo süresi"
-              value={formatDurationHours(summary.avgShipHours)}
-              hint={`Medyan: ${formatDurationHours(summary.medianShipHours)}`}
-            />
-            <SummaryCard
-              label="Stok doluluk"
-              value={pct(summary.stockFillRate)}
-              hint={`${summary.stockedProducts}/${summary.assignedProducts} üründe stok · toplam ${summary.totalStock} adet`}
-            />
+          <div
+            className={`grid gap-3 ${
+              reportView.cards.length > 3
+                ? "sm:grid-cols-2 xl:grid-cols-4"
+                : "sm:grid-cols-3"
+            }`}
+          >
+            {reportView.cards.map((card) => (
+              <SummaryCard
+                key={card.label}
+                label={card.label}
+                value={card.value}
+                hint={card.hint}
+              />
+            ))}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryCard
-              label="Dönem siparişi"
-              value={summary.totalOrders}
-              hint={`${summary.activeOrders} açık sipariş`}
-            />
-            <SummaryCard
-              label="Üretici kazancı"
-              value={formatPrice(summary.totalEarning)}
-              hint="Seçili dönem toplamı"
-            />
-            <SummaryCard
-              label="Stoğu boş ürün"
-              value={summary.zeroStockProducts}
-              hint="Aktif atamalarda stok = 0"
-            />
-            <SummaryCard
-              label="Toplam stok"
-              value={summary.totalStock}
-              hint="Tüm üreticilerdeki aktif stok"
-            />
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <MiniLeader
-              title="En hızlı kargolayanlar"
-              rows={data.fastestProducers || []}
-              empty="Henüz tamamlanmış sipariş yok"
-              renderValue={(row) => formatDurationHours(row.avgShipHours)}
-            />
-            <MiniLeader
-              title="En yavaş kargolayanlar"
-              rows={data.slowestProducers || []}
-              empty="Henüz tamamlanmış sipariş yok"
-              renderValue={(row) => formatDurationHours(row.avgShipHours)}
-            />
-            <MiniLeader
-              title="Düşük stok doluluk"
-              rows={data.lowStockProducers || []}
-              empty="Aktif ürün ataması yok"
-              renderValue={(row) => pct(row.stockFillRate)}
-            />
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-white">
-            <div className="flex flex-col gap-3 border-b border-zinc-100 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="font-semibold">Üretici performans tablosu</h2>
-                <p className="text-sm text-zinc-500">
-                  Skor: tamamlanma, stok doluluk, hacim ve kargo süresine göre
-                </p>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Üretici ara"
-                  className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 sm:w-48"
-                />
-                <select
-                  value={sortKey}
-                  onChange={(e) => setSortKey(e.target.value)}
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500"
-                >
-                  <option value="score">Skora göre</option>
-                  <option value="avgShipHours">Kargo süresine göre</option>
-                  <option value="stockFillRate">Stok doluluğa göre</option>
-                  <option value="completedOrders">Tamamlanan sipariş</option>
-                  <option value="totalEarning">Kazanca göre</option>
-                  <option value="name">İsme göre</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="min-w-[920px] w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Üretici</th>
-                    <th className="px-4 py-3 font-medium">Skor</th>
-                    <th className="px-4 py-3 font-medium">Sipariş</th>
-                    <th className="px-4 py-3 font-medium">Tamamlama</th>
-                    <th className="px-4 py-3 font-medium">Ort. kargo</th>
-                    <th className="px-4 py-3 font-medium">Stok doluluk</th>
-                    <th className="px-4 py-3 font-medium">Kazanç</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {producers.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={7}
-                        className="px-4 py-8 text-center text-zinc-500"
-                      >
-                        Bu dönemde gösterilecek üretici yok
-                      </td>
-                    </tr>
-                  ) : (
-                    producers.map((row) => (
-                      <tr
-                        key={row.id}
-                        className="border-t border-zinc-100 hover:bg-zinc-50/80"
-                      >
-                        <td className="px-4 py-3">
-                          <Link
-                            href={`/admin/ureticiler/${row.id}`}
-                            className="font-medium text-zinc-900 hover:text-orange-700"
-                          >
-                            {row.fullName}
-                          </Link>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                            {row.username ? <span>@{row.username}</span> : null}
-                            {row.city ? <span>· {row.city}</span> : null}
-                            {!row.isActive ? (
-                              <span className="rounded-full bg-zinc-200 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600">
-                                Pasif
-                              </span>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="w-28">
-                            <div className="mb-1 flex items-center justify-between text-xs">
-                              <span className="font-semibold text-zinc-800">
-                                {row.score}
-                              </span>
-                            </div>
-                            <ScoreBar score={row.score} />
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 tabular-nums text-zinc-800">
-                          <div>{row.totalOrders} toplam</div>
-                          <div className="text-xs text-zinc-500">
-                            {row.completedOrders} tamam · {row.activeOrders} açık
-                            · {row.failedOrders} red/iptal
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 tabular-nums font-medium text-zinc-800">
-                          {pct(row.completionRate)}
-                        </td>
-                        <td className="px-4 py-3 tabular-nums text-zinc-800">
-                          <div>{formatDurationHours(row.avgShipHours)}</div>
-                          {row.medianShipHours != null ? (
-                            <div className="text-xs text-zinc-500">
-                              medyan {formatDurationHours(row.medianShipHours)}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 tabular-nums text-zinc-800">
-                          <div className="font-medium">
-                            {pct(row.stockFillRate)}
-                          </div>
-                          <div className="text-xs text-zinc-500">
-                            {row.stockedProducts}/{row.assignedProducts} ürün ·{" "}
-                            {row.totalStock} adet
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 tabular-nums font-medium text-zinc-800">
-                          {formatPrice(row.totalEarning)}
-                          {row.shippedUnits > 0 ? (
-                            <div className="text-xs font-normal text-zinc-500">
-                              {row.shippedUnits} adet sevk
-                            </div>
-                          ) : null}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+          <div
+            className={`grid gap-4 ${
+              reportView.lists.length > 1 ? "lg:grid-cols-2" : ""
+            }`}
+          >
+            {reportView.lists.map((list) => (
+              <RankList
+                key={list.title}
+                title={list.title}
+                rows={list.rows}
+                empty={list.empty}
+                renderPrimary={list.primary}
+                renderSecondary={list.secondary}
+                badgesFor={list.badgesFor}
+              />
+            ))}
           </div>
         </>
       ) : null}

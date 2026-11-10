@@ -48,7 +48,7 @@ export default function AdminOrdersPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [message, setMessage] = useState("");
+  const [syncResult, setSyncResult] = useState(null);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -107,6 +107,20 @@ export default function AdminOrdersPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    if (!syncResult) return undefined;
+    function onKey(event) {
+      if (event.key === "Escape") setSyncResult(null);
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [syncResult]);
+
   const filteredOrders = useMemo(() => {
     let list = orders;
     if (filter !== "all") {
@@ -127,23 +141,41 @@ export default function AdminOrdersPage() {
   }, [orders, filter, search]);
 
   async function sync() {
+    if (syncing) return;
     setSyncing(true);
-    setMessage("");
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
+    let outcome = null;
     try {
       const res = await fetch("/api/admin/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "orders", days: 30 }),
+        signal: controller.signal,
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Sync başarısız");
-      setMessage(`${data.synced} sipariş senkronlandı`);
-      await load();
+      const count = Number(data.synced ?? 0);
+      outcome = {
+        ok: true,
+        title: "Senkron tamamlandı",
+        message: `${count} sipariş senkronlandı.`,
+      };
     } catch (err) {
-      setMessage(err.message);
+      const timedOut = err?.name === "AbortError";
+      outcome = {
+        ok: false,
+        title: "Senkron başarısız",
+        message: timedOut
+          ? "İşlem zaman aşımına uğradı. Lütfen tekrar deneyin."
+          : err?.message || "Sync başarısız",
+      };
     } finally {
+      clearTimeout(timeoutId);
       setSyncing(false);
     }
+    setSyncResult(outcome);
+    if (outcome?.ok) load();
   }
 
   function openManual() {
@@ -317,15 +349,14 @@ export default function AdminOrdersPage() {
           <button
             type="button"
             disabled={syncing}
+            aria-busy={syncing}
             onClick={sync}
-            className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+            className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500"
           >
             {syncing ? "Sync..." : "Trendyol Sync (30 gün)"}
           </button>
         </div>
       </div>
-
-      {message ? <p className="text-sm text-zinc-700">{message}</p> : null}
 
       <div className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
         <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -729,6 +760,44 @@ export default function AdminOrdersPage() {
               </div>
             </div>
           </form>
+        </div>
+      ) : null}
+
+      {syncResult ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sync-result-title"
+            className="my-auto w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+          >
+            <div
+              className={`mx-auto flex h-12 w-12 items-center justify-center rounded-full text-lg font-semibold ${
+                syncResult.ok
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-rose-100 text-rose-700"
+              }`}
+            >
+              {syncResult.ok ? "✓" : "!"}
+            </div>
+            <h3
+              id="sync-result-title"
+              className="mt-3 text-center text-lg font-semibold text-zinc-900"
+            >
+              {syncResult.title}
+            </h3>
+            <p className="mt-2 text-center text-sm leading-relaxed text-zinc-600">
+              {syncResult.message}
+            </p>
+            <button
+              type="button"
+              autoFocus
+              onClick={() => setSyncResult(null)}
+              className="mt-5 w-full rounded-xl bg-zinc-900 py-3 text-sm font-semibold text-white"
+            >
+              Tamam
+            </button>
+          </div>
         </div>
       ) : null}
     </div>
