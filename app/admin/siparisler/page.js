@@ -199,10 +199,20 @@ export default function AdminOrdersPage() {
       if (!res.ok) throw new Error(data.error || "Sync başarısız");
       if (data.syncedAt) setLastSyncAt(data.syncedAt);
       const count = Number(data.synced ?? 0);
+      const auto = data.autoAssign;
+      const autoText = !auto
+        ? ""
+        : auto.ran
+          ? ` Oto dağıtım: ${auto.assigned || 0} atandı, ${auto.held || 0} bekledi.`
+          : auto.reason === "outside"
+            ? " Oto dağıtım saat aralığı dışında."
+            : auto.reason === "disabled"
+              ? " Oto dağıtım kapalı."
+              : "";
       outcome = {
         ok: true,
         title: "Senkron tamamlandı",
-        message: `${count} sipariş senkronlandı.`,
+        message: `${count} sipariş senkronlandı.${autoText}`,
       };
     } catch (err) {
       const timedOut = err?.name === "AbortError";

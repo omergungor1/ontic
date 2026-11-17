@@ -9,6 +9,7 @@ import BackButton from "@/components/BackButton";
 import ProducerPerformancePanel, {
   fetchProducerAnalytics,
 } from "@/components/ProducerPerformancePanel";
+import ProducerAnalysisModal from "@/components/ProducerAnalysisModal";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
 import {
@@ -197,6 +198,7 @@ export default function AdminProducerDetailPage() {
   const [modalPassword, setModalPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [multiplierEditing, setMultiplierEditing] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
 
   const [form, setForm] = useState({
     fullName: "",
@@ -207,6 +209,7 @@ export default function AdminProducerDetailPage() {
     email: "",
     adminNote: "",
     personMultiplier: 1,
+    maxOpenOrders: "",
     isActive: true,
   });
 
@@ -257,6 +260,10 @@ export default function AdminProducerDetailPage() {
         personMultiplier: normalizePersonMultiplier(
           data.producer.person_multiplier
         ),
+        maxOpenOrders:
+          data.producer.max_open_orders == null
+            ? ""
+            : String(data.producer.max_open_orders),
         isActive: data.producer.is_active,
       });
 
@@ -666,16 +673,30 @@ export default function AdminProducerDetailPage() {
             </p>
           </div>
         </div>
-        {tab === "ayarlar" ? (
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            onClick={deleteProducer}
-            className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-medium text-rose-600"
+            onClick={() => setAnalysisOpen(true)}
+            className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700"
           >
-            Üreticiyi Sil
+            Analiz
           </button>
-        ) : null}
+          {tab === "ayarlar" ? (
+            <button
+              type="button"
+              onClick={deleteProducer}
+              className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-medium text-rose-600"
+            >
+              Üreticiyi Sil
+            </button>
+          ) : null}
+        </div>
       </div>
+
+      <ProducerAnalysisModal
+        producer={analysisOpen ? producer : null}
+        onClose={() => setAnalysisOpen(false)}
+      />
 
       <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {TABS.map((item) => (
@@ -1221,6 +1242,28 @@ export default function AdminProducerDetailPage() {
                   1. Kazancı değiştirmez.
                 </span>
               </div>
+              <label className="block text-sm sm:col-span-2">
+                <span className="mb-1 block text-zinc-500">
+                  Açık sipariş limiti
+                </span>
+                <input
+                  type="number"
+                  min="1"
+                  value={form.maxOpenOrders}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      maxOpenOrders: e.target.value,
+                    }))
+                  }
+                  placeholder="Limitsiz"
+                  className="w-full rounded-xl border px-3 py-2.5"
+                />
+                <span className="mt-1 block text-xs text-zinc-400">
+                  Kargolanmamış sipariş bu sayıya ulaşınca oto dağıtım yeni iş
+                  vermez. Boş bırakılırsa sınır yoktur.
+                </span>
+              </label>
               <label className="flex items-center gap-2 text-sm sm:col-span-2">
                 <input
                   type="checkbox"

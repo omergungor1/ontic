@@ -81,6 +81,21 @@ export async function PATCH(request, { params }) {
       body.personMultiplier = personMultiplier;
     }
 
+    if (body.maxOpenOrders !== undefined) {
+      if (body.maxOpenOrders === "" || body.maxOpenOrders == null) {
+        body.maxOpenOrders = null;
+      } else {
+        const maxOpenOrders = Number(body.maxOpenOrders);
+        if (!Number.isInteger(maxOpenOrders) || maxOpenOrders < 1) {
+          return NextResponse.json(
+            { error: "Açık sipariş limiti 1 veya daha büyük bir tam sayı olmalıdır" },
+            { status: 400 }
+          );
+        }
+        body.maxOpenOrders = maxOpenOrders;
+      }
+    }
+
     const updates = {
       full_name: body.fullName,
       phone: body.phone,
@@ -90,6 +105,7 @@ export async function PATCH(request, { params }) {
       email: body.email,
       admin_note: body.adminNote,
       person_multiplier: body.personMultiplier,
+      max_open_orders: body.maxOpenOrders,
       is_active: body.isActive,
       updated_at: new Date().toISOString(),
     };

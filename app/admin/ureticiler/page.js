@@ -6,6 +6,7 @@ import PhoneInput from "@/components/PhoneInput";
 import ProducerPerformancePanel, {
   fetchProducerAnalytics,
 } from "@/components/ProducerPerformancePanel";
+import ProducerAnalysisModal from "@/components/ProducerAnalysisModal";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
 import { normalizePersonMultiplier } from "@/lib/person-multiplier";
@@ -96,6 +97,7 @@ export default function AdminProducersPage() {
   const [error, setError] = useState("");
   const [perfById, setPerfById] = useState({});
   const [statsTarget, setStatsTarget] = useState(null);
+  const [analysisTarget, setAnalysisTarget] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState("");
   const [statsData, setStatsData] = useState(null);
@@ -370,6 +372,13 @@ export default function AdminProducersPage() {
                       <StatsIcon />
                       {score != null ? score : "—"}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnalysisTarget(p)}
+                      className="inline-flex h-8 items-center rounded-full border border-zinc-200 px-2.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Analiz
+                    </button>
                     <span
                       className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                         p.is_active
@@ -452,6 +461,11 @@ export default function AdminProducersPage() {
           </div>
         </div>
       ) : null}
+
+      <ProducerAnalysisModal
+        producer={analysisTarget}
+        onClose={() => setAnalysisTarget(null)}
+      />
 
       {open ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

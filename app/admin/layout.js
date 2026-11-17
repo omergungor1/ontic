@@ -18,6 +18,7 @@ const MAIN_LINKS = [
   { href: "/admin/stok", label: "Stok" },
   { href: "/admin/kampanyalar", label: "Kampanyalar", badge: "campaigns" },
   { href: "/admin/kasa", label: "Kasa" },
+  { href: "/admin/ayarlar", label: "Ayarlar" },
 ];
 
 const OTHER_LINKS = [

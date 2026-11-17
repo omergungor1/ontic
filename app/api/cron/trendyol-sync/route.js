@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "crypto";
 import { notFound } from "next/navigation";
 import { NextResponse } from "next/server";
 import { syncOrdersFromTrendyol } from "@/lib/sync";
+import { runAutoDistribution } from "@/lib/auto-assign";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,8 +25,19 @@ async function handle(request) {
 
   try {
     const result = await syncOrdersFromTrendyol({ days: 30 });
-    // Aşama 2: yeni siparişlerin üreticilere otomatik dağıtımı burada duracak.
-    return NextResponse.json({ ok: true, synced: result.synced, skipped: result.skipped });
+    let autoAssign = null;
+    try {
+      autoAssign = await runAutoDistribution();
+    } catch (err) {
+      console.error("[auto-assign]", err?.message || err);
+      autoAssign = { ran: false, reason: "error" };
+    }
+    return NextResponse.json({
+      ok: true,
+      synced: result.synced,
+      skipped: result.skipped,
+      autoAssign,
+    });
   } catch {
     return new NextResponse(null, { status: 500 });
   }

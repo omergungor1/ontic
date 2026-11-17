@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { syncOrdersFromTrendyol, syncProductsFromTrendyol } from "@/lib/sync";
+import { runAutoDistribution } from "@/lib/auto-assign";
 
 export async function POST(request) {
   try {
@@ -12,7 +13,14 @@ export async function POST(request) {
       const result = await syncOrdersFromTrendyol({
         days: Number(body.days || 30),
       });
-      return NextResponse.json({ ok: true, ...result });
+      let autoAssign = null;
+      try {
+        autoAssign = await runAutoDistribution();
+      } catch (err) {
+        console.error("[auto-assign]", err?.message || err);
+        autoAssign = { ran: false, reason: "error" };
+      }
+      return NextResponse.json({ ok: true, ...result, autoAssign });
     }
 
     const result = await syncProductsFromTrendyol();
