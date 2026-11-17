@@ -8,6 +8,7 @@ import ProducerPerformancePanel, {
 } from "@/components/ProducerPerformancePanel";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/format";
+import { normalizePersonMultiplier } from "@/lib/person-multiplier";
 import { isValidTrMobile } from "@/lib/phone";
 
 const emptyForm = {
@@ -17,6 +18,7 @@ const emptyForm = {
   district: "",
   password: "",
   phone: "",
+  personMultiplier: "1",
 };
 
 const SORT_OPTIONS = [
@@ -348,7 +350,14 @@ export default function AdminProducersPage() {
                     className="min-w-0 flex-1"
                   >
                     <p className="font-semibold text-zinc-900">{p.full_name}</p>
-                    <p className="mt-1 text-sm text-zinc-500">@{p.username}</p>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      @{p.username}
+                      {normalizePersonMultiplier(p.person_multiplier) > 1 ? (
+                        <span className="ml-2 inline-flex rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
+                          {normalizePersonMultiplier(p.person_multiplier)} kişi
+                        </span>
+                      ) : null}
+                    </p>
                   </Link>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <button
@@ -506,6 +515,25 @@ export default function AdminProducersPage() {
               onChange={(phone) => setForm((prev) => ({ ...prev, phone }))}
               className="w-full rounded-xl border px-3 py-2"
             />
+            <label className="block text-sm">
+              <span className="mb-1 block text-zinc-500">Kişi çarpanı</span>
+              <input
+                type="number"
+                min="1"
+                max="999"
+                step="1"
+                inputMode="numeric"
+                required
+                value={form.personMultiplier}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    personMultiplier: e.target.value,
+                  }))
+                }
+                className="w-full rounded-xl border px-3 py-2"
+              />
+            </label>
             <input
               required
               type="text"

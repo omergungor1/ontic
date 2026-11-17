@@ -16,6 +16,19 @@ const FILTERS = [
   { key: "cancelled", label: "İptal" },
 ];
 
+function syncAgo(value, now = Date.now()) {
+  if (!value) return "Henüz senkron yapılmadı";
+  const then = new Date(value).getTime();
+  if (Number.isNaN(then)) return "Henüz senkron yapılmadı";
+  const minutes = Math.floor(Math.max(0, now - then) / 60000);
+  if (minutes < 1) return "az önce";
+  if (minutes < 60) return `${minutes} dk önce`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? "1 saat önce" : `${hours} saat önce`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 gün önce" : `${days} gün önce`;
+}
+
 function statusBadgeClass(status) {
   switch (status) {
     case "pending_assignment":
@@ -49,6 +62,9 @@ export default function AdminOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [lastSyncAt, setLastSyncAt] = useState(null);
+  const [syncInfoOpen, setSyncInfoOpen] = useState(false);
+  const [syncClock, setSyncClock] = useState(() => Date.now());
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -74,6 +90,12 @@ export default function AdminOrdersPage() {
       .order("order_date", { ascending: false })
       .limit(200);
     setOrders(data || []);
+    const { data: syncState } = await supabase
+      .from("app_state")
+      .select("value")
+      .eq("key", "orders_synced_at")
+      .maybeSingle();
+    setLastSyncAt(syncState?.value || null);
     setLoading(false);
   }
 
@@ -106,6 +128,26 @@ export default function AdminOrdersPage() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (!syncInfoOpen) return undefined;
+    setSyncClock(Date.now());
+    const id = setInterval(() => setSyncClock(Date.now()), 30000);
+    function onPointer(event) {
+      if (event.target.closest("[data-sync-info]")) return;
+      setSyncInfoOpen(false);
+    }
+    function onKey(event) {
+      if (event.key === "Escape") setSyncInfoOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [syncInfoOpen]);
 
   useEffect(() => {
     if (!syncResult) return undefined;
@@ -155,6 +197,7 @@ export default function AdminOrdersPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Sync başarısız");
+      if (data.syncedAt) setLastSyncAt(data.syncedAt);
       const count = Number(data.synced ?? 0);
       outcome = {
         ok: true,
@@ -346,15 +389,41 @@ export default function AdminOrdersPage() {
           >
             Manuel sipariş ekle
           </button>
-          <button
-            type="button"
-            disabled={syncing}
-            aria-busy={syncing}
-            onClick={sync}
-            className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500"
-          >
-            {syncing ? "Sync..." : "Trendyol Sync (30 gün)"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={syncing}
+              aria-busy={syncing}
+              onClick={sync}
+              className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500"
+            >
+              {syncing ? "Sync..." : "Trendyol Sync (30 gün)"}
+            </button>
+            <div className="relative" data-sync-info>
+              <button
+                type="button"
+                aria-label="Son senkron zamanı"
+                aria-expanded={syncInfoOpen}
+                onClick={() => setSyncInfoOpen((open) => !open)}
+                className="flex h-[42px] w-[42px] items-center justify-center rounded-xl border border-zinc-200 bg-white text-sm font-semibold italic text-zinc-500 hover:bg-zinc-50"
+              >
+                i
+              </button>
+              {syncInfoOpen ? (
+                <div className="absolute right-0 top-full z-20 mt-2 w-52 rounded-xl border border-zinc-200 bg-white p-3 shadow-lg">
+                  <p className="text-xs text-zinc-500">Son senkron</p>
+                  <p className="mt-1 text-sm font-medium text-zinc-900">
+                    {syncAgo(lastSyncAt, syncClock)}
+                  </p>
+                  {lastSyncAt ? (
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      {formatDate(lastSyncAt)}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
 

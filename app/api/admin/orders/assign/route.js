@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { refreshOrderInternalStatus } from "@/lib/sync";
 import { reconcileAssignedQuantities } from "@/lib/assigned-quantity";
+import { notifyAssignedProducers } from "@/lib/order-mail";
 
 const MERGEABLE_STATUSES = ["created", "confirmed", "ready"];
 
@@ -38,7 +39,27 @@ export async function POST(request) {
       );
       if (!validItems.length) continue;
 
+      const productIds = [
+        ...new Set(
+          validItems.map((item) => item.productId).filter(Boolean)
+        ),
+      ];
+      const materialByProduct = new Map();
+      if (productIds.length) {
+        const { data: productRows } = await admin
+          .from("products")
+          .select("id, material_support")
+          .in("id", productIds);
+        for (const row of productRows || []) {
+          materialByProduct.set(
+            row.id,
+            Number(row.material_support || 0)
+          );
+        }
+      }
+
       let earning = 0;
+      let materialSupport = 0;
       for (const item of validItems) {
         const orderItem = itemMap.get(item.orderItemId);
         if (!orderItem) {
@@ -51,13 +72,19 @@ export async function POST(request) {
             `${orderItem.product_name || "Ürün"} için kalan adet yetersiz`
           );
         }
-        earning += Number(item.quantity) * Number(item.unitEarning || 0);
+        const qty = Number(item.quantity);
+        const unitMaterial = Number(
+          materialByProduct.get(item.productId) || 0
+        );
+        earning += qty * Number(item.unitEarning || 0);
+        materialSupport += qty * unitMaterial;
+        item._unitMaterialSupport = unitMaterial;
       }
 
       // Aynı üreticinin bu siparişteki açık (iptal/kargolanmamış) kaydını bul
       const { data: existingOrder } = await admin
         .from("producer_orders")
-        .select("id, producer_earning, status")
+        .select("id, producer_earning, material_support, status")
         .eq("trendyol_order_id", orderId)
         .eq("producer_id", assignment.producerId)
         .in("status", MERGEABLE_STATUSES)
@@ -74,6 +101,8 @@ export async function POST(request) {
           .update({
             producer_earning:
               Number(existingOrder.producer_earning || 0) + earning,
+            material_support:
+              Number(existingOrder.material_support || 0) + materialSupport,
             updated_at: new Date().toISOString(),
           })
           .eq("id", producerOrderId);
@@ -85,6 +114,7 @@ export async function POST(request) {
             producer_id: assignment.producerId,
             status: "created",
             producer_earning: earning,
+            material_support: materialSupport,
             notes: assignment.notes || null,
           })
           .select("id")
@@ -104,10 +134,16 @@ export async function POST(request) {
         // Aynı sipariş kalemi zaten bu üretici siparişinde varsa miktarı birleştir
         const { data: existingLine } = await admin
           .from("producer_order_items")
-          .select("id, quantity, unit_earning")
+          .select("id, quantity, unit_earning, unit_material_support")
           .eq("producer_order_id", producerOrderId)
           .eq("order_item_id", item.orderItemId)
           .maybeSingle();
+
+        const unitMaterialSupport = Number(
+          item._unitMaterialSupport ||
+            materialByProduct.get(item.productId) ||
+            0
+        );
 
         if (existingLine) {
           await admin
@@ -117,6 +153,7 @@ export async function POST(request) {
                 Number(existingLine.quantity || 0) + Number(item.quantity),
               unit_earning:
                 Number(item.unitEarning || existingLine.unit_earning || 0),
+              unit_material_support: unitMaterialSupport,
               stock_at_assignment: Number(stockRow?.stock_quantity || 0),
             })
             .eq("id", existingLine.id);
@@ -127,6 +164,7 @@ export async function POST(request) {
             product_id: item.productId || null,
             quantity: Number(item.quantity),
             unit_earning: Number(item.unitEarning || 0),
+            unit_material_support: unitMaterialSupport,
             stock_at_assignment: Number(stockRow?.stock_quantity || 0),
           });
         }
@@ -143,7 +181,19 @@ export async function POST(request) {
     }
 
     await refreshOrderInternalStatus(orderId);
-    return NextResponse.json({ ok: true, by: user.id });
+
+    let mail = { sent: 0, skipped: 0, failed: 0 };
+    try {
+      mail = await notifyAssignedProducers(admin, {
+        orderId,
+        assignments,
+        itemMap,
+      });
+    } catch {
+      mail = { sent: 0, skipped: 0, failed: 1 };
+    }
+
+    return NextResponse.json({ ok: true, by: user.id, mail });
   } catch (error) {
     return NextResponse.json(
       { error: error.message },

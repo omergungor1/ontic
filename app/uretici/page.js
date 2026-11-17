@@ -8,6 +8,7 @@ import PhoneInput from "@/components/PhoneInput";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
 import { formatPhoneInput, isValidTrMobile } from "@/lib/phone";
+import { PAYABLE_PRODUCER_ORDER_STATUSES } from "@/lib/producer-orders";
 import { useUnreadMessages } from "@/lib/useUnreadMessages";
 
 function statusClass(status) {
@@ -61,9 +62,11 @@ export default function ProducerHomePage() {
   const [loading, setLoading] = useState(true);
   const [activeOrders, setActiveOrders] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
+  const [campaigns, setCampaigns] = useState([]);
   const [totalStock, setTotalStock] = useState(0);
   const [remainingPayment, setRemainingPayment] = useState(0);
   const [fullName, setFullName] = useState("");
+  const [emailMissing, setEmailMissing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(emptySettings);
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -87,10 +90,11 @@ export default function ProducerHomePage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("full_name")
+        .select("full_name, email")
         .eq("id", user.id)
         .maybeSingle();
       setFullName(profile?.full_name || "");
+      setEmailMissing(!String(profile?.email || "").trim());
 
       const { data: announcementRows } = await supabase
         .from("announcements")
@@ -122,28 +126,50 @@ export default function ProducerHomePage() {
 
       const { data: earningRows } = await supabase
         .from("producer_orders")
-        .select("producer_earning")
+        .select("producer_earning, material_support")
         .eq("producer_id", user.id)
-        .not("status", "in", '("cancelled","rejected")');
+        .in("status", PAYABLE_PRODUCER_ORDER_STATUSES);
 
       const { data: paymentRows } = await supabase
         .from("payments")
+        .select("amount, kind")
+        .eq("producer_id", user.id);
+
+      const { data: starRows } = await supabase
+        .from("star_bonus_entries")
         .select("amount")
         .eq("producer_id", user.id);
 
       const totalEarned = (earningRows || []).reduce(
-        (sum, r) => sum + Number(r.producer_earning || 0),
+        (sum, r) =>
+          sum +
+          Number(r.producer_earning || 0) +
+          Number(r.material_support || 0),
         0
       );
-      const totalPaid = (paymentRows || []).reduce(
+      const totalPaid = (paymentRows || []).reduce((sum, r) => {
+        if (r.kind === "campaign") return sum;
+        return sum + Number(r.amount || 0);
+      }, 0);
+      const starBonus = (starRows || []).reduce(
         (sum, r) => sum + Number(r.amount || 0),
         0
       );
 
+      let campaignCards = [];
+      try {
+        const campRes = await fetch("/api/uretici/campaigns");
+        const campData = await campRes.json();
+        if (campRes.ok) campaignCards = campData.campaigns || [];
+      } catch {
+        campaignCards = [];
+      }
+
       setAnnouncements(announcementRows || []);
+      setCampaigns(campaignCards);
       setActiveOrders(orders || []);
       setTotalStock(stockSum);
-      setRemainingPayment(totalEarned - totalPaid);
+      setRemainingPayment(totalEarned + starBonus - totalPaid);
       setLoading(false);
     }
     load();
@@ -192,6 +218,7 @@ export default function ProducerHomePage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Kaydedilemedi");
       setFullName(settings.fullName.trim());
+      setEmailMissing(!String(settings.email || "").trim());
       setSettingsMessage("Ayarlar kaydedildi");
     } catch (err) {
       setSettingsError(err.message);
@@ -222,7 +249,103 @@ export default function ProducerHomePage() {
         </button>
       </div>
 
+      {emailMissing ? (
+        <button
+          type="button"
+          onClick={openSettings}
+          className="flex w-full items-center justify-between rounded-2xl bg-amber-500 px-5 py-4 text-left text-white transition hover:bg-amber-600"
+        >
+          <span className="text-base font-semibold">
+            Mail bilginiz boş, lütfen doldurunuz.
+          </span>
+          <span className="text-2xl" aria-hidden="true">
+            →
+          </span>
+        </button>
+      ) : null}
+
       <AnnouncementSlider items={announcements} />
+
+      {campaigns.length > 0 ? (
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold">Kampanyalar</h2>
+          {campaigns.map((campaign) => {
+            const progress = Math.min(
+              100,
+              Math.round(
+                (Math.max(0, Number(campaign.netStockAdded || 0)) /
+                  Math.max(1, Number(campaign.targetStock || 1))) *
+                  100
+              )
+            );
+            const approved = campaign.claimStatus === "approved";
+            const rejected = campaign.claimStatus === "rejected";
+            const awaitingApproval =
+              !approved && !rejected && Boolean(campaign.metTarget);
+            return (
+              <div
+                key={campaign.id}
+                className="rounded-2xl border border-zinc-200 bg-white p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-zinc-900">
+                      {campaign.title}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      Hedef {campaign.targetStock} adet · Ödül{" "}
+                      {formatPrice(campaign.rewardAmount)}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      {campaign.daysLeft > 0
+                        ? `Son ${campaign.daysLeft} gün`
+                        : "Bugün son gün"}{" "}
+                      · Kalan{" "}
+                      {campaign.remaining > 0
+                        ? `${campaign.remaining} adet`
+                        : "hedef tamam"}
+                    </p>
+                  </div>
+                  {approved || awaitingApproval ? (
+                    <span
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-lg text-emerald-700"
+                      aria-label="Hedef tamam"
+                    >
+                      ✓
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-zinc-100">
+                  <div
+                    className="h-full rounded-full bg-orange-500 transition-all"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-sm text-zinc-600">
+                  İlerleme: {Math.max(0, Number(campaign.netStockAdded || 0))} /{" "}
+                  {campaign.targetStock} adet
+                </p>
+                {rejected ? (
+                  <p className="mt-2 text-sm font-medium text-rose-600">
+                    Bu kampanya başvurusu reddedildi.
+                  </p>
+                ) : approved ? (
+                  <p className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+                    Tebrikler! Kampanyayı kazandınız.{" "}
+                    {formatPrice(campaign.rewardAmount)} ödül ödemelerinize
+                    yansıtıldı.
+                  </p>
+                ) : awaitingApproval ? (
+                  <p className="mt-2 text-sm font-medium text-amber-700">
+                    Onay aşamasında. Onaylanınca kampanya bakiyesi ödemelere
+                    yansıtılacaktır.
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       {unreadCount > 0 ? (
         <Link
@@ -287,13 +410,23 @@ export default function ProducerHomePage() {
                     .map((i) => `${i.products?.title || "Ürün"} × ${i.quantity}`)
                     .join(", ")}
                 </p>
-                <div className="mt-2 flex items-center justify-between text-sm">
+                <div className="mt-2 flex items-end justify-between gap-3 text-sm">
                   <span className="text-zinc-400">
                     {formatDate(order.created_at)}
                   </span>
-                  <span className="font-semibold text-emerald-600">
-                    {formatPrice(order.producer_earning)}
-                  </span>
+                  <div className="text-right">
+                    <p className="font-semibold text-emerald-600">
+                      {formatPrice(
+                        Number(order.producer_earning || 0) +
+                          Number(order.material_support || 0)
+                      )}
+                    </p>
+                    {Number(order.material_support || 0) > 0 ? (
+                      <p className="text-xs font-medium text-sky-700">
+                        +{formatPrice(order.material_support)} malzeme desteği
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               </Link>
             ))}

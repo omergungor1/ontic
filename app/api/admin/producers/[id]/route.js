@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { decryptPassword, encryptPassword } from "@/lib/crypto";
+import { parsePersonMultiplier } from "@/lib/person-multiplier";
 import { normalizePhone } from "@/lib/phone";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logStockChange } from "@/lib/stock-log";
 
 export async function GET(_request, { params }) {
   try {
@@ -41,7 +43,7 @@ export async function GET(_request, { params }) {
 
 export async function PATCH(request, { params }) {
   try {
-    await requireAdmin();
+    const { user } = await requireAdmin();
     const { id } = await params;
     const body = await request.json();
     const admin = createAdminClient();
@@ -68,6 +70,17 @@ export async function PATCH(request, { params }) {
       body.email = email || null;
     }
 
+    if (body.personMultiplier !== undefined) {
+      const personMultiplier = parsePersonMultiplier(body.personMultiplier);
+      if (!personMultiplier) {
+        return NextResponse.json(
+          { error: "Kişi çarpanı 1 veya daha büyük bir tam sayı olmalıdır" },
+          { status: 400 }
+        );
+      }
+      body.personMultiplier = personMultiplier;
+    }
+
     const updates = {
       full_name: body.fullName,
       phone: body.phone,
@@ -76,6 +89,7 @@ export async function PATCH(request, { params }) {
       iban: body.iban,
       email: body.email,
       admin_note: body.adminNote,
+      person_multiplier: body.personMultiplier,
       is_active: body.isActive,
       updated_at: new Date().toISOString(),
     };
@@ -94,6 +108,11 @@ export async function PATCH(request, { params }) {
 
     const { error } = await admin.from("profiles").update(updates).eq("id", id);
     if (error) {
+      if (/person_multiplier/i.test(error.message || "")) {
+        throw new Error(
+          "profiles.person_multiplier sütunu yok. Supabase SQL Editor'da scripts/add-person-multiplier.sql dosyasını çalıştırın."
+        );
+      }
       if (/email/i.test(error.message || "")) {
         throw new Error(
           "profiles.email sütunu yok. Supabase SQL Editor'da şunu çalıştırın: alter table public.profiles add column if not exists email text;"
@@ -104,16 +123,45 @@ export async function PATCH(request, { params }) {
 
     if (Array.isArray(body.productAssignments)) {
       for (const item of body.productAssignments) {
-        await admin.from("producer_products").upsert(
-          {
-            producer_id: id,
-            product_id: item.productId,
-            is_active: Boolean(item.isActive),
-            stock_quantity: Number(item.stockQuantity || 0),
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "producer_id,product_id" }
-        );
+        const nextStock = Number(item.stockQuantity || 0);
+        const { data: existing } = await admin
+          .from("producer_products")
+          .select("id, stock_quantity")
+          .eq("producer_id", id)
+          .eq("product_id", item.productId)
+          .maybeSingle();
+
+        const { data: upserted, error: upsertError } = await admin
+          .from("producer_products")
+          .upsert(
+            {
+              producer_id: id,
+              product_id: item.productId,
+              is_active: Boolean(item.isActive),
+              stock_quantity: nextStock,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "producer_id,product_id" }
+          )
+          .select("id, stock_quantity")
+          .single();
+        if (upsertError) throw upsertError;
+
+        const prevStock = existing
+          ? Number(existing.stock_quantity || 0)
+          : 0;
+        if (prevStock !== nextStock) {
+          await logStockChange(admin, {
+            producerId: id,
+            productId: item.productId,
+            producerProductId: upserted?.id || existing?.id,
+            previousQuantity: prevStock,
+            newQuantity: nextStock,
+            source: "admin",
+            createdBy: user.id,
+            syncCampaigns: false,
+          });
+        }
       }
     }
 

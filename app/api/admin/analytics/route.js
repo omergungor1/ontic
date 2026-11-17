@@ -45,7 +45,7 @@ export async function GET(request) {
       let q = admin
         .from("producer_orders")
         .select(
-          "id, producer_id, status, producer_earning, created_at, updated_at"
+          "id, producer_id, status, producer_earning, material_support, created_at, updated_at, shipped_at"
         )
         .order("created_at", { ascending: false });
       if (producerId) q = q.eq("producer_id", producerId);

@@ -4,6 +4,7 @@ import {
   requireAdmin,
 } from "@/lib/auth";
 import { encryptPassword } from "@/lib/crypto";
+import { parsePersonMultiplier } from "@/lib/person-multiplier";
 import { normalizePhone } from "@/lib/phone";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -39,6 +40,11 @@ export async function POST(request) {
     const phone = normalizePhone(body.phone, { required: true });
     const iban = String(body.iban || "").trim();
     const adminNote = String(body.adminNote || "").trim();
+    const personMultiplier = parsePersonMultiplier(
+      body.personMultiplier === undefined || body.personMultiplier === ""
+        ? 1
+        : body.personMultiplier
+    );
 
     if (!username || !fullName || !password) {
       return NextResponse.json(
@@ -60,6 +66,13 @@ export async function POST(request) {
     if (!phone) {
       return NextResponse.json(
         { error: "Telefon 05XX XXX XX XX formatında olmalıdır" },
+        { status: 400 }
+      );
+    }
+
+    if (!personMultiplier) {
+      return NextResponse.json(
+        { error: "Kişi çarpanı 1 veya daha büyük bir tam sayı olmalıdır" },
         { status: 400 }
       );
     }
@@ -106,6 +119,7 @@ export async function POST(request) {
       district: district || null,
       iban: iban || null,
       admin_note: adminNote || null,
+      person_multiplier: personMultiplier,
       encrypted_password: encryptPassword(password),
       is_active: true,
     });

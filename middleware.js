@@ -1,7 +1,37 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 
+async function cronBearerOk(request) {
+  const expected = process.env.CRON_BEARER_TOKEN || "";
+  if (!expected) return false;
+
+  const header = request.headers.get("authorization") || "";
+  const match = /^Bearer\s+(\S+)$/i.exec(header);
+  if (!match) return false;
+
+  const encoder = new TextEncoder();
+  const given = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", encoder.encode(match[1]))
+  );
+  const want = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", encoder.encode(expected))
+  );
+  if (given.length !== want.length) return false;
+  let diff = 0;
+  for (let i = 0; i < given.length; i += 1) diff |= given[i] ^ want[i];
+  return diff === 0;
+}
+
 export async function middleware(request) {
+  if (request.nextUrl.pathname === "/api/cron/trendyol-sync") {
+    if (!(await cronBearerOk(request))) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/bu-sayfa-yok";
+      return NextResponse.rewrite(url);
+    }
+    return NextResponse.next();
+  }
+
   let response = NextResponse.next({
     request: { headers: request.headers },
   });
@@ -106,5 +136,10 @@ export async function middleware(request) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/uretici/:path*", "/giris"],
+  matcher: [
+    "/admin/:path*",
+    "/uretici/:path*",
+    "/giris",
+    "/api/cron/trendyol-sync",
+  ],
 };

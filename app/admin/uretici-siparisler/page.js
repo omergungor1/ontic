@@ -6,6 +6,10 @@ import ImageLightbox from "@/components/ImageLightbox";
 import StorageImage from "@/components/StorageImage";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
+import {
+  normalizePersonMultiplier,
+  sendQuantity,
+} from "@/lib/person-multiplier";
 
 const FILTERS = [
   { key: "all", label: "Tümü" },
@@ -52,7 +56,7 @@ export default function AdminProducerOrdersPage() {
     const { data } = await supabase
       .from("producer_orders")
       .select(
-        "*, profiles!producer_id(full_name, username, phone), trendyol_orders!trendyol_order_id(id, order_number, customer_first_name, customer_last_name), producer_order_items(*, products!product_id(id, title, image_url))"
+        "*, profiles!producer_id(full_name, username, phone, person_multiplier), trendyol_orders!trendyol_order_id(id, order_number, customer_first_name, customer_last_name), producer_order_items(*, products!product_id(id, title, image_url))"
       )
       .order("created_at", { ascending: false })
       .limit(300);
@@ -155,6 +159,16 @@ export default function AdminProducerOrdersPage() {
                       <p className="font-medium">{po.profiles?.full_name}</p>
                       <p className="text-xs text-zinc-500">
                         @{po.profiles?.username}
+                        {normalizePersonMultiplier(po.profiles?.person_multiplier) >
+                        1 ? (
+                          <span className="ml-1 text-orange-700">
+                            ·{" "}
+                            {normalizePersonMultiplier(
+                              po.profiles?.person_multiplier
+                            )}{" "}
+                            kişi
+                          </span>
+                        ) : null}
                       </p>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
@@ -174,7 +188,12 @@ export default function AdminProducerOrdersPage() {
                       {formatDate(po.created_at)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
-                      {formatPrice(po.producer_earning)}
+                      <p>{formatPrice(po.producer_earning)}</p>
+                      {Number(po.material_support || 0) > 0 ? (
+                        <p className="text-xs font-medium text-sky-700">
+                          +{formatPrice(po.material_support)} malzeme
+                        </p>
+                      ) : null}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span
@@ -243,8 +262,17 @@ export default function AdminProducerOrdersPage() {
                 <div className="rounded-xl bg-zinc-50 p-3">
                   <p className="text-xs text-zinc-500">Kazanç</p>
                   <p className="mt-1 text-base font-semibold text-emerald-600">
-                    {formatPrice(selected.producer_earning)}
+                    {formatPrice(
+                      Number(selected.producer_earning || 0) +
+                        Number(selected.material_support || 0)
+                    )}
                   </p>
+                  {Number(selected.material_support || 0) > 0 ? (
+                    <p className="mt-1 text-xs font-medium text-sky-700">
+                      Üretim {formatPrice(selected.producer_earning)} · Malzeme{" "}
+                      {formatPrice(selected.material_support)}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="rounded-xl bg-zinc-50 p-3">
                   <p className="text-xs text-zinc-500">Tarih</p>
@@ -262,6 +290,12 @@ export default function AdminProducerOrdersPage() {
                       {selected.profiles.phone}
                     </p>
                   ) : null}
+                  <p className="mt-0.5 text-xs font-medium text-orange-700">
+                    {normalizePersonMultiplier(
+                      selected.profiles?.person_multiplier
+                    )}{" "}
+                    kişilik hesap
+                  </p>
                 </div>
               </div>
 
@@ -317,6 +351,18 @@ export default function AdminProducerOrdersPage() {
                             {item.quantity} adet · birim{" "}
                             {formatPrice(item.unit_earning)}
                           </p>
+                          {normalizePersonMultiplier(
+                            selected.profiles?.person_multiplier
+                          ) > 1 ? (
+                            <p className="text-xs font-medium text-orange-700">
+                              Gönderilecek{" "}
+                              {sendQuantity(
+                                item.quantity,
+                                selected.profiles?.person_multiplier
+                              )}{" "}
+                              adet
+                            </p>
+                          ) : null}
                         </div>
                         <p className="shrink-0 text-sm font-semibold">
                           {formatPrice(

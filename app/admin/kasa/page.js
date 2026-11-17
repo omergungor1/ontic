@@ -53,24 +53,84 @@ function MoreIcon(props) {
   );
 }
 
+const SUMMARY_INFO = {
+  income:
+    "Seçili tarih aralığındaki Trendyol siparişlerinin net tutarı toplamıdır (komisyon düşülmüş Trendyol neti). İptal siparişler dahil edilmez.",
+  expense:
+    "Seçili aralıkta üreticilere kaydedilen gerçek ödeme (havale/EFT) toplamıdır. Sipariş kazancı değil, kasadan çıkan paradır.",
+  producerEarnings:
+    "Tamamlanan / kargolanan üretici siparişlerindeki üretici fiyatı kazançları toplamıdır. Onay bekleyen siparişler dahil edilmez.",
+  materialSupport:
+    "Tamamlanan / kargolanan üretici siparişlerindeki malzeme desteği toplamıdır. Ürüne tanımlı destek, atama anında kilitlenir.",
+  starBonus:
+    "Seçili aralıkta üreticilerin yıldızlı ürün stoğuna eklemesiyle oluşan bonus toplamıdır. Elle stok çekilince bonus geri alınır. Sipariş için düşen stok bonusu silmez.",
+  balance:
+    "Gelir − Gider. Trendyol net gelirinden üreticilere yapılan ödemeler düşülünce kalan brüt bakiyedir. Net kâr değildir.",
+  netProfit:
+    "Satış (KDV hariç) − komisyon − kargo − platform hizmet bedeli − ürün maliyeti (üretici kazancı + malzeme desteği) − gelir vergisi tahmini.",
+};
+
+function SummaryCard({ label, value, tone = "default", info, infoKey, onInfo }) {
+  const valueClass =
+    tone === "emerald"
+      ? "text-emerald-600"
+      : tone === "rose"
+        ? "text-rose-600"
+        : tone === "profit"
+          ? Number(value) >= 0
+            ? "text-emerald-700"
+            : "text-rose-600"
+          : "text-zinc-900";
+  const cardClass =
+    tone === "profit"
+      ? "rounded-2xl border border-emerald-200 bg-emerald-50 p-4"
+      : "rounded-2xl border border-zinc-200 bg-white p-4";
+  const labelClass =
+    tone === "profit" ? "text-xs text-emerald-700" : "text-xs text-zinc-500";
+
+  return (
+    <div className={cardClass}>
+      <div className="flex items-start justify-between gap-2">
+        <p className={labelClass}>{label}</p>
+        <button
+          type="button"
+          onClick={() => onInfo(infoKey, label, info)}
+          aria-label={`${label} açıklaması`}
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-zinc-300 text-[11px] font-semibold text-zinc-500 hover:bg-zinc-100"
+        >
+          ?
+        </button>
+      </div>
+      <p className={`mt-1 text-2xl font-semibold ${valueClass}`}>
+        {formatPrice(value)}
+      </p>
+    </div>
+  );
+}
+
 export default function AdminCashPage() {
   const [from, setFrom] = useState(monthAgoIso());
   const [to, setTo] = useState(todayIso());
+  const [dateField, setDateField] = useState("shipped_at");
   const [listType, setListType] = useState("all");
   const [producerId, setProducerId] = useState("");
   const [producers, setProducers] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [starBonuses, setStarBonuses] = useState([]);
   const [producerOrders, setProducerOrders] = useState([]);
   const [orders, setOrders] = useState([]);
   const [summary, setSummary] = useState({
     income: 0,
     expense: 0,
     producerEarnings: 0,
+    materialSupport: 0,
+    starBonus: 0,
     balance: 0,
     netProfit: 0,
   });
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [infoOpen, setInfoOpen] = useState(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState({ producerId: "", amount: "", note: "" });
@@ -107,11 +167,13 @@ export default function AdminCashPage() {
         params.set("to", end.toISOString());
       }
       if (producerId) params.set("producerId", producerId);
+      params.set("dateField", dateField);
 
       const res = await fetch(`/api/admin/payments?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Kasa verisi alınamadı");
       setPayments(data.payments || []);
+      setStarBonuses(data.starBonuses || []);
       setProducerOrders(data.producerOrders || []);
       setOrders(data.orders || []);
       setSummary(
@@ -119,6 +181,8 @@ export default function AdminCashPage() {
           income: 0,
           expense: 0,
           producerEarnings: 0,
+          materialSupport: 0,
+          starBonus: 0,
           balance: 0,
           netProfit: 0,
         }
@@ -150,7 +214,7 @@ export default function AdminCashPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, producerId]);
+  }, [from, to, producerId, dateField]);
 
   const timeline = useMemo(() => {
     const items = [];
@@ -160,7 +224,7 @@ export default function AdminCashPage() {
         items.push({
           id: `payment-${p.id}`,
           paymentId: p.id,
-          kind: "payment",
+          kind: p.kind === "campaign" ? "campaign" : "payment",
           date: p.paid_at,
           producerName: p.profiles?.full_name || "-",
           amount: Number(p.amount || 0),
@@ -175,9 +239,13 @@ export default function AdminCashPage() {
         items.push({
           id: `order-${po.id}`,
           kind: "order",
-          date: po.created_at,
+          date:
+            dateField === "order_date"
+              ? po.trendyol_orders?.order_date || po.created_at
+              : po.shipped_at || po.created_at,
           producerName: po.profiles?.full_name || "-",
           amount: Number(po.producer_earning || 0),
+          materialSupport: Number(po.material_support || 0),
           note: "",
           meta: {
             orderNumber: po.trendyol_orders?.order_number || "-",
@@ -187,9 +255,23 @@ export default function AdminCashPage() {
       }
     }
 
+    if (listType === "all" || listType === "star") {
+      for (const row of starBonuses) {
+        items.push({
+          id: `star-${row.id}`,
+          kind: "star",
+          date: row.created_at,
+          producerName: row.profiles?.full_name || "-",
+          amount: Number(row.amount || 0),
+          note: row.note || "Yıldızlı ürün bonusu",
+          meta: null,
+        });
+      }
+    }
+
     items.sort((a, b) => new Date(b.date) - new Date(a.date));
     return items;
-  }, [payments, producerOrders, listType]);
+  }, [payments, producerOrders, starBonuses, listType, dateField]);
 
   async function openSettings() {
     setSettingsError("");
@@ -321,7 +403,9 @@ export default function AdminCashPage() {
         ? "Üretici sipariş kazançları"
         : listType === "profit"
           ? "Trendyol siparişleri — net kâr"
-          : "Timeline";
+          : listType === "star"
+            ? "Yıldızlı ürün bonusları"
+            : "Timeline";
 
   return (
     <div className="space-y-5">
@@ -369,6 +453,17 @@ export default function AdminCashPage() {
           />
         </label>
         <label className="text-sm">
+          <span className="mb-1 block text-zinc-500">Tarih alanı</span>
+          <select
+            value={dateField}
+            onChange={(e) => setDateField(e.target.value)}
+            className="rounded-lg border px-2 py-1.5"
+          >
+            <option value="shipped_at">Kargolanma tarihi</option>
+            <option value="order_date">Trendyol sipariş tarihi</option>
+          </select>
+        </label>
+        <label className="text-sm">
           <span className="mb-1 block text-zinc-500">Liste</span>
           <select
             value={listType}
@@ -378,6 +473,7 @@ export default function AdminCashPage() {
             <option value="all">Tümü</option>
             <option value="payment">Ödeme</option>
             <option value="order">Sipariş</option>
+            <option value="star">Yıldızlı ürün bonusu</option>
             <option value="profit">Kar</option>
           </select>
         </label>
@@ -400,43 +496,62 @@ export default function AdminCashPage() {
 
       {message ? <p className="text-sm text-rose-600">{message}</p> : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          <p className="text-xs text-zinc-500">Gelir (Trendyol net tutar)</p>
-          <p className="mt-1 text-2xl font-semibold text-emerald-600">
-            {formatPrice(summary.income)}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          <p className="text-xs text-zinc-500">Gider (Üretici ödemeleri)</p>
-          <p className="mt-1 text-2xl font-semibold text-rose-600">
-            {formatPrice(summary.expense)}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          <p className="text-xs text-zinc-500">Üretici sipariş kazançları</p>
-          <p className="mt-1 text-2xl font-semibold text-rose-600">
-            {formatPrice(summary.producerEarnings)}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-          <p className="text-xs text-zinc-500">Bakiye</p>
-          <p className="mt-1 text-2xl font-semibold">
-            {formatPrice(summary.balance)}
-          </p>
-        </div>
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-          <p className="text-xs text-emerald-700">Gerçek net kâr</p>
-          <p
-            className={`mt-1 text-2xl font-semibold ${
-              Number(summary.netProfit) >= 0
-                ? "text-emerald-700"
-                : "text-rose-600"
-            }`}
-          >
-            {formatPrice(summary.netProfit)}
-          </p>
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <SummaryCard
+          label="Gelir (Trendyol net tutar)"
+          value={summary.income}
+          tone="emerald"
+          infoKey="income"
+          info={SUMMARY_INFO.income}
+          onInfo={(key, title, text) => setInfoOpen({ key, title, text })}
+        />
+        <SummaryCard
+          label="Gider (Üretici ödemeleri)"
+          value={summary.expense}
+          tone="rose"
+          infoKey="expense"
+          info={SUMMARY_INFO.expense}
+          onInfo={(key, title, text) => setInfoOpen({ key, title, text })}
+        />
+        <SummaryCard
+          label="Üretici sipariş kazançları"
+          value={summary.producerEarnings}
+          tone="rose"
+          infoKey="producerEarnings"
+          info={SUMMARY_INFO.producerEarnings}
+          onInfo={(key, title, text) => setInfoOpen({ key, title, text })}
+        />
+        <SummaryCard
+          label="Malzeme desteği"
+          value={summary.materialSupport}
+          tone="rose"
+          infoKey="materialSupport"
+          info={SUMMARY_INFO.materialSupport}
+          onInfo={(key, title, text) => setInfoOpen({ key, title, text })}
+        />
+        <SummaryCard
+          label="Yıldızlı ürün bonusu"
+          value={summary.starBonus}
+          tone="rose"
+          infoKey="starBonus"
+          info={SUMMARY_INFO.starBonus}
+          onInfo={(key, title, text) => setInfoOpen({ key, title, text })}
+        />
+        <SummaryCard
+          label="Bakiye"
+          value={summary.balance}
+          infoKey="balance"
+          info={SUMMARY_INFO.balance}
+          onInfo={(key, title, text) => setInfoOpen({ key, title, text })}
+        />
+        <SummaryCard
+          label="Gerçek net kâr"
+          value={summary.netProfit}
+          tone="profit"
+          infoKey="netProfit"
+          info={SUMMARY_INFO.netProfit}
+          onInfo={(key, title, text) => setInfoOpen({ key, title, text })}
+        />
       </div>
 
       <div className="space-y-3">
@@ -524,7 +639,7 @@ export default function AdminCashPage() {
         ) : (
           <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
             <div className="overflow-x-auto overscroll-x-contain">
-              <table className="w-full min-w-[640px] text-left text-sm">
+              <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
                   <tr>
                     <th className="whitespace-nowrap px-4 py-3">Tür</th>
@@ -533,6 +648,9 @@ export default function AdminCashPage() {
                       Detay
                     </th>
                     <th className="whitespace-nowrap px-4 py-3">Tutar</th>
+                    <th className="whitespace-nowrap px-4 py-3">
+                      Malzeme desteği
+                    </th>
                     <th className="whitespace-nowrap px-4 py-3">Tarih</th>
                     <th className="w-12 px-2 py-3">
                       <span className="sr-only">İşlemler</span>
@@ -547,17 +665,29 @@ export default function AdminCashPage() {
                         className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                           item.kind === "payment"
                             ? "bg-rose-100 text-rose-700"
-                            : "bg-sky-100 text-sky-700"
+                            : item.kind === "campaign"
+                              ? "bg-violet-100 text-violet-700"
+                              : item.kind === "star"
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-sky-100 text-sky-700"
                         }`}
                       >
-                        {item.kind === "payment" ? "Ödeme" : "Sipariş"}
+                        {item.kind === "payment"
+                          ? "Ödeme"
+                          : item.kind === "campaign"
+                            ? "Kampanya"
+                            : item.kind === "star"
+                              ? "Yıldız bonusu"
+                              : "Sipariş"}
                       </span>
                     </td>
                     <td className="px-4 py-3 font-medium">
                       {item.producerName}
                     </td>
                     <td className="min-w-[10rem] px-4 py-3 text-zinc-500">
-                      {item.kind === "payment"
+                      {item.kind === "payment" ||
+                      item.kind === "campaign" ||
+                      item.kind === "star"
                         ? item.note || "-"
                         : `${item.meta?.orderNumber || "-"} · ${
                             PRODUCER_ORDER_STATUS[item.meta?.status] ||
@@ -565,15 +695,29 @@ export default function AdminCashPage() {
                             "-"
                           }`}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 font-medium text-rose-600">
-                      {item.kind === "payment" ? "-" : ""}
+                    <td
+                      className={`whitespace-nowrap px-4 py-3 font-medium ${
+                        item.kind === "star" && Number(item.amount) < 0
+                          ? "text-emerald-700"
+                          : "text-rose-600"
+                      }`}
+                    >
+                      {item.kind === "payment" || item.kind === "campaign"
+                        ? "-"
+                        : ""}
                       {formatPrice(item.amount)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-zinc-600">
+                      {item.kind === "order" &&
+                      Number(item.materialSupport || 0) > 0
+                        ? formatPrice(item.materialSupport)
+                        : ""}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-zinc-500">
                       {formatDate(item.date)}
                     </td>
                     <td className="px-2 py-3 text-right">
-                      {item.kind === "payment" ? (
+                      {item.kind === "payment" || item.kind === "campaign" ? (
                         <div className="relative inline-block" data-payment-menu>
                           <button
                             type="button"
@@ -610,6 +754,34 @@ export default function AdminCashPage() {
           </div>
         )}
       </div>
+
+      {infoOpen ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="summary-info-title"
+          >
+            <h3
+              id="summary-info-title"
+              className="text-lg font-semibold text-zinc-900"
+            >
+              {infoOpen.title}
+            </h3>
+            <p className="mt-3 text-sm leading-relaxed text-zinc-600">
+              {infoOpen.text}
+            </p>
+            <button
+              type="button"
+              onClick={() => setInfoOpen(null)}
+              className="mt-5 w-full rounded-xl bg-zinc-900 py-2.5 text-sm font-medium text-white"
+            >
+              Anladım
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {deleteTarget ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">

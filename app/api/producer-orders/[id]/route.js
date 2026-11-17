@@ -59,10 +59,19 @@ export async function PATCH(request, { params }) {
 
       if (markingShipped) {
         await deductProducerStockOnShip(admin, order);
+        updates.shipped_at = new Date().toISOString();
       }
 
       updates.status =
         body.status === "shipped" ? "completed" : body.status;
+
+      if (
+        (updates.status === "completed" || updates.status === "shipped") &&
+        !order.shipped_at &&
+        !updates.shipped_at
+      ) {
+        updates.shipped_at = new Date().toISOString();
+      }
     }
     if (body.cargoImageUrl !== undefined) {
       if (!isAdmin) {

@@ -11,6 +11,10 @@ import ProducerPerformancePanel, {
 } from "@/components/ProducerPerformancePanel";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
+import {
+  normalizePersonMultiplier,
+  sendQuantity,
+} from "@/lib/person-multiplier";
 import { formatPhoneInput, isValidTrMobile } from "@/lib/phone";
 
 const TABS = [
@@ -28,6 +32,132 @@ const PERF_RANGES = [
 ];
 
 const ORDERS_PAGE_SIZE = 10;
+
+const PRODUCT_SORT_OPTIONS = [
+  { value: "producing-first", label: "Üretenler üstte" },
+  { value: "name-asc", label: "İsim (A → Z)" },
+  { value: "name-desc", label: "İsim (Z → A)" },
+  { value: "stock-desc", label: "Stok (azalan)" },
+  { value: "stock-asc", label: "Stok (artan)" },
+];
+
+const PRODUCING_FILTERS = [
+  { value: "all", label: "Tümü" },
+  { value: "producing", label: "Üretiyor" },
+  { value: "not_producing", label: "Üretmiyor" },
+];
+
+function PersonIcon({ className = "h-5 w-5" }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path
+        d="M4 20h4L18.5 9.5a2.12 2.12 0 0 0-3-3L5 17v3Z"
+        strokeLinejoin="round"
+      />
+      <path d="m13.5 6.5 3 3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PersonMultiplierField({ value, editing, onToggleEdit, onChange }) {
+  const count = normalizePersonMultiplier(value);
+  const overFive = count > 5;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {editing ? (
+        <input
+          type="number"
+          min="1"
+          max="999"
+          step="1"
+          inputMode="numeric"
+          required
+          autoFocus
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label="Kişi çarpanı"
+          className="w-24 rounded-xl border px-3 py-2.5"
+        />
+      ) : overFive ? (
+        <span className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-zinc-800">
+          <PersonIcon className="h-5 w-5 text-orange-600" />
+          <span className="text-sm font-semibold tabular-nums">{count}</span>
+        </span>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          {Array.from({ length: 5 }, (_, index) => {
+            const personCount = index + 1;
+            const active = personCount <= count;
+            return (
+              <button
+                key={personCount}
+                type="button"
+                aria-label={`${personCount} kişi`}
+                aria-pressed={personCount === count}
+                onClick={() => onChange(personCount)}
+                className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${
+                  active
+                    ? "border-orange-200 bg-orange-50 text-orange-600"
+                    : "border-zinc-200 bg-white text-zinc-300 hover:border-zinc-300 hover:text-zinc-500"
+                }`}
+              >
+                <PersonIcon />
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onToggleEdit}
+        aria-label={editing ? "Kişi seçimine dön" : "Kişi çarpanını yaz"}
+        title={editing ? "Kişi seçimine dön" : "Elle yaz"}
+        className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border transition ${
+          editing
+            ? "border-zinc-900 bg-zinc-900 text-white"
+            : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+        }`}
+      >
+        <PencilIcon />
+      </button>
+    </div>
+  );
+}
+
+function EyeIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" {...props}>
+      <path
+        d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" />
+    </svg>
+  );
+}
 
 function statusClass(status) {
   switch (status) {
@@ -66,6 +196,7 @@ export default function AdminProducerDetailPage() {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [modalPassword, setModalPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [multiplierEditing, setMultiplierEditing] = useState(false);
 
   const [form, setForm] = useState({
     fullName: "",
@@ -75,12 +206,22 @@ export default function AdminProducerDetailPage() {
     iban: "",
     email: "",
     adminNote: "",
+    personMultiplier: 1,
     isActive: true,
   });
 
   const [products, setProducts] = useState([]);
   const [assignments, setAssignments] = useState({});
+  const [pinnedActiveIds, setPinnedActiveIds] = useState({});
+  const [pinnedStockById, setPinnedStockById] = useState({});
   const [productSearch, setProductSearch] = useState("");
+  const [productFilterOpen, setProductFilterOpen] = useState(false);
+  const [producingFilter, setProducingFilter] = useState("all");
+  const [productSortBy, setProductSortBy] = useState("producing-first");
+  const [stockHistoryOpen, setStockHistoryOpen] = useState(false);
+  const [stockHistoryLoading, setStockHistoryLoading] = useState(false);
+  const [stockHistoryError, setStockHistoryError] = useState("");
+  const [stockHistory, setStockHistory] = useState(null);
 
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
@@ -113,6 +254,9 @@ export default function AdminProducerDetailPage() {
         iban: data.producer.iban || "",
         email: data.producer.email || "",
         adminNote: data.producer.admin_note || "",
+        personMultiplier: normalizePersonMultiplier(
+          data.producer.person_multiplier
+        ),
         isActive: data.producer.is_active,
       });
 
@@ -130,8 +274,17 @@ export default function AdminProducerDetailPage() {
         };
       }
 
+      const pinned = {};
+      const pinnedStock = {};
+      for (const [productId, val] of Object.entries(assignMap)) {
+        if (val.isActive) pinned[productId] = true;
+        pinnedStock[productId] = Number(val.stockQuantity || 0);
+      }
+
       setProducts(allProducts || []);
       setAssignments(assignMap);
+      setPinnedActiveIds(pinned);
+      setPinnedStockById(pinnedStock);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -260,19 +413,92 @@ export default function AdminProducerDetailPage() {
     }));
   }
 
-  const sortedProducts = useMemo(() => {
-    const term = productSearch.trim().toLowerCase();
-    let list = products;
-    if (term) {
-      list = list.filter((p) => p.title?.toLowerCase().includes(term));
-    }
-    return [...list].sort((a, b) => {
-      const aActive = assignments[a.id]?.isActive ? 1 : 0;
-      const bActive = assignments[b.id]?.isActive ? 1 : 0;
-      if (aActive !== bActive) return bActive - aActive;
-      return (a.title || "").localeCompare(b.title || "", "tr");
+  async function openStockHistory(product) {
+    if (!producerId || !product?.id) return;
+    setStockHistoryOpen(true);
+    setStockHistoryLoading(true);
+    setStockHistoryError("");
+    setStockHistory({
+      productTitle: product.title || "Ürün",
+      logs: [],
     });
-  }, [products, assignments, productSearch]);
+    try {
+      const params = new URLSearchParams({
+        producerId,
+        productId: product.id,
+      });
+      const res = await fetch(`/api/admin/stock-logs?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Stok geçmişi alınamadı");
+      setStockHistory({
+        productTitle: data.product?.title || product.title || "Ürün",
+        logs: data.logs || [],
+      });
+    } catch (err) {
+      setStockHistoryError(err.message);
+    } finally {
+      setStockHistoryLoading(false);
+    }
+  }
+
+  const productFilterActive =
+    Boolean(productSearch.trim()) ||
+    producingFilter !== "all" ||
+    productSortBy !== "producing-first";
+
+  const sortedProducts = useMemo(() => {
+    const term = productSearch.trim().toLocaleLowerCase("tr");
+    let list = products;
+
+    if (term) {
+      list = list.filter((p) =>
+        String(p.title || "")
+          .toLocaleLowerCase("tr")
+          .includes(term)
+      );
+    }
+
+    if (producingFilter === "producing") {
+      list = list.filter((p) => assignments[p.id]?.isActive);
+    } else if (producingFilter === "not_producing") {
+      list = list.filter((p) => !assignments[p.id]?.isActive);
+    }
+
+    return [...list].sort((a, b) => {
+      // Stok sıralaması yüklenen değere göre — yazarken liste zıplamasın
+      const stockA = Number(pinnedStockById[a.id] || 0);
+      const stockB = Number(pinnedStockById[b.id] || 0);
+      const nameA = a.title || "";
+      const nameB = b.title || "";
+
+      switch (productSortBy) {
+        case "name-asc":
+          return nameA.localeCompare(nameB, "tr");
+        case "name-desc":
+          return nameB.localeCompare(nameA, "tr");
+        case "stock-asc":
+          return stockA - stockB;
+        case "stock-desc":
+          return stockB - stockA;
+        case "producing-first":
+        default: {
+          // Sıralama kayıtlı (yüklenen) duruma göre — checkbox ile anlık yer değiştirmez
+          const aActive = pinnedActiveIds[a.id] ? 1 : 0;
+          const bActive = pinnedActiveIds[b.id] ? 1 : 0;
+          if (aActive !== bActive) return bActive - aActive;
+          return nameA.localeCompare(nameB, "tr");
+        }
+      }
+    });
+  }, [
+    products,
+    assignments,
+    pinnedActiveIds,
+    pinnedStockById,
+    productSearch,
+    producingFilter,
+    productSortBy,
+  ]);
 
   async function saveProfile(e) {
     e.preventDefault();
@@ -291,6 +517,7 @@ export default function AdminProducerDetailPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Kaydedilemedi");
+      setMultiplierEditing(false);
       setMessage("Ayarlar kaydedildi");
       await load();
     } catch (err) {
@@ -428,7 +655,15 @@ export default function AdminProducerDetailPage() {
             <h1 className="truncate text-2xl font-semibold">
               {producer.full_name}
             </h1>
-            <p className="truncate text-zinc-500">@{producer.username}</p>
+            <p className="flex min-w-0 items-center gap-2 text-zinc-500">
+              <span className="truncate">@{producer.username}</span>
+              <span className="inline-flex shrink-0 items-center gap-1 text-zinc-700">
+                <PersonIcon className="h-4 w-4" />
+                <span className="text-sm font-medium tabular-nums">
+                  × {normalizePersonMultiplier(producer.person_multiplier)}
+                </span>
+              </span>
+            </p>
           </div>
         </div>
         {tab === "ayarlar" ? (
@@ -540,6 +775,18 @@ export default function AdminProducerDetailPage() {
                               {item.quantity} adet ·{" "}
                               {formatPrice(item.unit_earning)}
                             </p>
+                            {normalizePersonMultiplier(
+                              producer.person_multiplier
+                            ) > 1 ? (
+                              <p className="text-xs font-medium text-orange-700">
+                                Gönderilecek{" "}
+                                {sendQuantity(
+                                  item.quantity,
+                                  producer.person_multiplier
+                                )}{" "}
+                                adet
+                              </p>
+                            ) : null}
                           </div>
                           <p className="shrink-0 text-sm font-semibold">
                             {formatPrice(
@@ -615,14 +862,91 @@ export default function AdminProducerDetailPage() {
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="font-semibold">Ürün Ataması</h2>
-              <input
-                value={productSearch}
-                onChange={(e) => setProductSearch(e.target.value)}
-                placeholder="Ürün ara"
-                className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm sm:max-w-xs"
-              />
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <input
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="Ürün ara"
+                  className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm sm:w-56"
+                />
+                <button
+                  type="button"
+                  onClick={() => setProductFilterOpen((open) => !open)}
+                  aria-expanded={productFilterOpen}
+                  className={`rounded-xl border px-4 py-2.5 text-sm font-medium transition sm:shrink-0 ${
+                    productFilterOpen || productFilterActive
+                      ? "border-orange-300 bg-orange-50 text-orange-700"
+                      : "border-zinc-200 bg-white text-zinc-700"
+                  }`}
+                >
+                  Filtre{productFilterOpen ? " ▴" : " ▾"}
+                </button>
+              </div>
             </div>
+
+            {productFilterOpen ? (
+              <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 sm:p-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <p className="mb-2 text-xs font-medium text-zinc-500">
+                      Üretim durumu
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {PRODUCING_FILTERS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setProducingFilter(option.value)}
+                          className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                            producingFilter === option.value
+                              ? "bg-orange-600 text-white"
+                              : "bg-white text-zinc-700 ring-1 ring-zinc-200"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1 block text-xs font-medium text-zinc-500">
+                      Sıralama
+                    </span>
+                    <select
+                      value={productSortBy}
+                      onChange={(e) => setProductSortBy(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm"
+                    >
+                      {PRODUCT_SORT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {productFilterActive ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProductSearch("");
+                      setProducingFilter("all");
+                      setProductSortBy("producing-first");
+                    }}
+                    className="mt-3 text-sm font-medium text-orange-700 hover:underline"
+                  >
+                    Filtreleri temizle
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="mt-4 space-y-2">
+              {sortedProducts.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-zinc-200 px-3 py-8 text-center text-sm text-zinc-500">
+                  Filtreye uygun ürün yok
+                </p>
+              ) : null}
               {sortedProducts.map((p) => {
                 const assign = assignments[p.id] || {
                   isActive: false,
@@ -684,6 +1008,15 @@ export default function AdminProducerDetailPage() {
                           className="w-20 rounded-lg border px-2 py-1.5"
                         />
                       </label>
+                      <button
+                        type="button"
+                        onClick={() => openStockHistory(p)}
+                        aria-label="Stok geçmişini gör"
+                        title="Stok geçmişi"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-600 hover:bg-zinc-50"
+                      >
+                        <EyeIcon className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
                 );
@@ -698,6 +1031,80 @@ export default function AdminProducerDetailPage() {
             {saving ? "Kaydediliyor..." : "Ürünleri Kaydet"}
           </button>
         </form>
+      ) : null}
+
+      {stockHistoryOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
+          <div
+            className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stock-history-title"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-zinc-100 px-5 py-4">
+              <div className="min-w-0">
+                <h3
+                  id="stock-history-title"
+                  className="text-lg font-semibold text-zinc-900"
+                >
+                  Stok geçmişi
+                </h3>
+                <p className="mt-0.5 truncate text-sm text-zinc-500">
+                  {stockHistory?.productTitle || "Ürün"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStockHistoryOpen(false)}
+                className="rounded-full px-3 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
+              >
+                Kapat
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-5 py-4">
+              {stockHistoryLoading ? (
+                <p className="text-sm text-zinc-500">Yükleniyor...</p>
+              ) : stockHistoryError ? (
+                <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {stockHistoryError}
+                </p>
+              ) : !stockHistory?.logs?.length ? (
+                <p className="rounded-xl border border-dashed border-zinc-200 px-3 py-8 text-center text-sm text-zinc-500">
+                  Bu ürün için stok hareketi yok
+                </p>
+              ) : (
+                stockHistory.logs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-zinc-800">
+                          {log.sourceLabel}
+                        </p>
+                        <p className="mt-0.5 text-xs text-zinc-500">
+                          {formatDate(log.createdAt)}
+                        </p>
+                      </div>
+                      <p
+                        className={`shrink-0 text-sm font-semibold ${
+                          log.delta >= 0 ? "text-emerald-700" : "text-rose-600"
+                        }`}
+                      >
+                        {log.delta > 0 ? "+" : ""}
+                        {log.delta}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-xs text-zinc-600">
+                      {log.previousQuantity} → {log.newQuantity} adet
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {tab === "ayarlar" ? (
@@ -798,6 +1205,22 @@ export default function AdminProducerDetailPage() {
                   className="w-full rounded-xl border px-3 py-2.5"
                 />
               </label>
+              <div className="block text-sm sm:col-span-2">
+                <span className="mb-1 block text-zinc-500">Kişi çarpanı</span>
+                <PersonMultiplierField
+                  value={form.personMultiplier}
+                  editing={multiplierEditing}
+                  onToggleEdit={() => setMultiplierEditing((open) => !open)}
+                  onChange={(personMultiplier) =>
+                    setForm((prev) => ({ ...prev, personMultiplier }))
+                  }
+                />
+                <span className="mt-1 block text-xs text-zinc-400">
+                  Bu hesabı aynı anda kaç kişi kullanıyor. Sipariş adedi bu
+                  sayıyla çarpılarak gönderilecek miktar hesaplanır. Varsayılan
+                  1. Kazancı değiştirmez.
+                </span>
+              </div>
               <label className="flex items-center gap-2 text-sm sm:col-span-2">
                 <input
                   type="checkbox"

@@ -16,6 +16,7 @@ const MAIN_LINKS = [
   { href: "/admin/urunler", label: "Ürünler" },
   { href: "/admin/ureticiler", label: "Üreticiler" },
   { href: "/admin/stok", label: "Stok" },
+  { href: "/admin/kampanyalar", label: "Kampanyalar", badge: "campaigns" },
   { href: "/admin/kasa", label: "Kasa" },
 ];
 
@@ -97,6 +98,7 @@ export default function AdminLayout({ children }) {
   const [pendingApps, setPendingApps] = useState(0);
   const [newContacts, setNewContacts] = useState(0);
   const [pendingProductRequests, setPendingProductRequests] = useState(0);
+  const [pendingCampaignClaims, setPendingCampaignClaims] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [otherOpen, setOtherOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -137,9 +139,18 @@ export default function AdminLayout({ children }) {
       if (!error) setPendingProductRequests(count || 0);
     }
 
+    async function loadPendingCampaignClaims() {
+      const { count, error } = await supabase
+        .from("stock_campaign_claims")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending");
+      if (!error) setPendingCampaignClaims(count || 0);
+    }
+
     loadPendingApps();
     loadNewContacts();
     loadPendingProductRequests();
+    loadPendingCampaignClaims();
 
     const channel = supabase
       .channel("admin-pending-badges")
@@ -163,6 +174,17 @@ export default function AdminLayout({ children }) {
         },
         () => {
           loadNewContacts();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "stock_campaign_claims",
+        },
+        () => {
+          loadPendingCampaignClaims();
         }
       )
       .subscribe();
@@ -231,6 +253,7 @@ export default function AdminLayout({ children }) {
     if (link.badge === "applications") return pendingApps;
     if (link.badge === "contact") return newContacts;
     if (link.badge === "productRequests") return pendingProductRequests;
+    if (link.badge === "campaigns") return pendingCampaignClaims;
     return 0;
   }
 
@@ -250,7 +273,8 @@ export default function AdminLayout({ children }) {
     (hasUnread ? unreadCount || 1 : 0) +
     (pendingApps || 0) +
     (newContacts || 0) +
-    (pendingProductRequests || 0);
+    (pendingProductRequests || 0) +
+    (pendingCampaignClaims || 0);
   const isMessages = pathname.startsWith("/admin/mesajlar");
 
   return (

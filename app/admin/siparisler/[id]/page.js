@@ -19,6 +19,29 @@ import {
   deriveInternalStatus,
   isTrendyolCancelled,
 } from "@/lib/assigned-quantity";
+import {
+  normalizePersonMultiplier,
+  sendQuantity,
+} from "@/lib/person-multiplier";
+
+function assignmentMessage(mail) {
+  const sent = Number(mail?.sent || 0);
+  const skipped = Number(mail?.skipped || 0);
+  const failed = Number(mail?.failed || 0);
+  if (sent > 0 && failed === 0 && skipped === 0) {
+    return "Sipariş üreticilere dağıtıldı. Yeni sipariş maili gönderildi.";
+  }
+  if (sent > 0 && skipped > 0) {
+    return "Sipariş üreticilere dağıtıldı. Geçerli e-postası olanlara mail gönderildi.";
+  }
+  if (sent === 0 && skipped > 0 && failed === 0) {
+    return "Sipariş üreticilere dağıtıldı. Geçerli e-posta olmadığı için mail gönderilmedi.";
+  }
+  if (failed > 0) {
+    return "Sipariş üreticilere dağıtıldı. Mail gönderilirken bir sorun oluştu.";
+  }
+  return "Sipariş üreticilere dağıtıldı";
+}
 
 function producerStatusClass(status) {
   switch (status) {
@@ -117,6 +140,8 @@ export default function AdminOrderDetailPage() {
   const [orderCancelSaving, setOrderCancelSaving] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const [rawCopied, setRawCopied] = useState(false);
+  const rawCopyTimer = useRef(null);
   const cargoFileRefs = useRef({});
 
   // Dağıtım modalı — ürün bazlı: her kalemde ayrı üretici
@@ -138,21 +163,23 @@ export default function AdminOrderDetailPage() {
 
     const { data: itemsData } = await supabase
       .from("trendyol_order_items")
-      .select("*, products!product_id(id, title, image_url, producer_price)")
+      .select(
+        "*, products!product_id(id, title, image_url, producer_price, material_support)"
+      )
       .eq("order_id", orderId)
       .order("created_at", { ascending: true });
 
     const { data: producerOrdersData } = await supabase
       .from("producer_orders")
       .select(
-        "*, profiles!producer_id(full_name, username), producer_order_items(*, products!product_id(title))"
+        "*, profiles!producer_id(full_name, username, person_multiplier), producer_order_items(*, products!product_id(title))"
       )
       .eq("trendyol_order_id", orderId)
       .order("created_at", { ascending: false });
 
     const { data: producers } = await supabase
       .from("profiles")
-      .select("id, full_name, username, is_active")
+      .select("id, full_name, username, is_active, person_multiplier")
       .eq("role", "producer")
       .eq("is_active", true)
       .order("full_name", { ascending: true });
@@ -166,7 +193,7 @@ export default function AdminOrderDetailPage() {
       const { data: candidates } = await supabase
         .from("producer_products")
         .select(
-          "*, profiles!producer_id(id, full_name, username, is_active)"
+          "*, profiles!producer_id(id, full_name, username, is_active, person_multiplier)"
         )
         .in("product_id", productIds)
         .eq("is_active", true);
@@ -254,6 +281,7 @@ export default function AdminOrderDetailPage() {
         full_name: p.full_name,
         username: p.username,
         stock_quantity: null,
+        person_multiplier: p.person_multiplier,
       }));
     }
     return (candidatesByProduct[item.product_id] || [])
@@ -262,6 +290,7 @@ export default function AdminOrderDetailPage() {
         full_name: c.profiles?.full_name,
         username: c.profiles?.username,
         stock_quantity: c.stock_quantity,
+        person_multiplier: c.profiles?.person_multiplier,
       }))
       .filter((p) => p.id)
       .sort((a, b) => (b.stock_quantity || 0) - (a.stock_quantity || 0));
@@ -418,7 +447,7 @@ export default function AdminOrderDetailPage() {
       setAssignOpen(false);
       setDraftLines({});
       setPickerItemId(null);
-      setMessage("Sipariş üreticilere dağıtıldı");
+      setMessage(assignmentMessage(data.mail));
       await load();
     } catch (err) {
       setError(err.message);
@@ -520,6 +549,36 @@ export default function AdminOrderDetailPage() {
     }
   }
 
+  async function copyRawJson() {
+    const text = JSON.stringify(order?.raw || order, null, 2);
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.top = "0";
+      area.style.left = "0";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      try {
+        ok = document.execCommand("copy");
+      } catch {
+        ok = false;
+      }
+      area.remove();
+    }
+    if (!ok) return;
+    setRawCopied(true);
+    window.clearTimeout(rawCopyTimer.current);
+    rawCopyTimer.current = window.setTimeout(() => setRawCopied(false), 1600);
+  }
+
   if (loading) return <p>Yükleniyor...</p>;
   if (!order)
     return (
@@ -547,6 +606,7 @@ export default function AdminOrderDetailPage() {
             type="button"
             onClick={() => {
               setShowRaw(false);
+              setRawCopied(false);
               setDetailOpen(true);
             }}
             className="group text-left"
@@ -751,11 +811,43 @@ export default function AdminOrderDetailPage() {
                 <ul className="mt-3 space-y-1 text-sm text-zinc-600">
                   {(po.producer_order_items || []).map((line) => (
                     <li key={line.id} className="flex justify-between gap-3">
-                      <span className="min-w-0 truncate">
-                        {line.products?.title || "Ürün"} × {line.quantity}
+                      <span className="min-w-0">
+                        <span className="block truncate">
+                          {line.products?.title || "Ürün"} × {line.quantity}
+                        </span>
+                        {normalizePersonMultiplier(
+                          po.profiles?.person_multiplier
+                        ) > 1 ? (
+                          <span className="mt-0.5 block text-xs font-medium text-orange-700">
+                            Gönderilecek{" "}
+                            {sendQuantity(
+                              line.quantity,
+                              po.profiles?.person_multiplier
+                            )}{" "}
+                            adet (
+                            {normalizePersonMultiplier(
+                              po.profiles?.person_multiplier
+                            )}{" "}
+                            kişi)
+                          </span>
+                        ) : null}
                       </span>
-                      <span className="shrink-0">
-                        {formatPrice(line.unit_earning * line.quantity)}
+                      <span className="shrink-0 text-right">
+                        {formatPrice(
+                          Number(line.unit_earning || 0) * Number(line.quantity || 0) +
+                            Number(line.unit_material_support || 0) *
+                              Number(line.quantity || 0)
+                        )}
+                        {Number(line.unit_material_support || 0) > 0 ? (
+                          <span className="mt-0.5 block text-[11px] text-sky-700">
+                            +
+                            {formatPrice(
+                              Number(line.unit_material_support || 0) *
+                                Number(line.quantity || 0)
+                            )}{" "}
+                            malzeme
+                          </span>
+                        ) : null}
                       </span>
                     </li>
                   ))}
@@ -766,6 +858,14 @@ export default function AdminOrderDetailPage() {
                     {formatPrice(po.producer_earning)}
                   </span>
                 </div>
+                {Number(po.material_support || 0) > 0 ? (
+                  <div className="mt-1 flex items-center justify-between text-sm">
+                    <span className="text-zinc-500">Malzeme desteği</span>
+                    <span className="font-semibold text-sky-700">
+                      {formatPrice(po.material_support)}
+                    </span>
+                  </div>
+                ) : null}
 
                 <div className="mt-3 space-y-2 border-t border-zinc-100 pt-3">
                   <p className="text-xs font-medium text-zinc-500">
@@ -934,8 +1034,17 @@ export default function AdminOrderDetailPage() {
                         </button>
 
                         {selected ? (
-                          <p className="text-xs text-emerald-700">
-                            Seçili: {selected.full_name}
+                          <p className="text-xs text-orange-800">
+                            {normalizePersonMultiplier(
+                              selected.person_multiplier
+                            )}{" "}
+                            kişilik hesap
+                            {Number(line.quantity) > 0
+                              ? ` · gönderilecek ${sendQuantity(
+                                  line.quantity,
+                                  selected.person_multiplier
+                                )} adet`
+                              : ""}
                           </p>
                         ) : null}
                       </div>
@@ -1052,6 +1161,13 @@ export default function AdminOrderDetailPage() {
                             ) ? (
                               <p className="mt-1 text-[11px] text-amber-700">
                                 Ürünler sayfasında üretici fiyatı tanımlı değil.
+                              </p>
+                            ) : null}
+                            {Number(item.products?.material_support || 0) > 0 ? (
+                              <p className="mt-1 text-[11px] font-medium text-sky-700">
+                                +
+                                {formatPrice(item.products.material_support)}{" "}
+                                malzeme desteği / adet (atamada kilitlenir)
                               </p>
                             ) : null}
                           </div>
@@ -1291,9 +1407,20 @@ export default function AdminOrderDetailPage() {
                 {showRaw ? "Ham veriyi gizle" : "Ham Trendyol verisini göster"}
               </button>
               {showRaw ? (
-                <pre className="mt-2 max-h-80 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-950 p-3 text-xs leading-relaxed text-zinc-100">
-                  {JSON.stringify(order.raw || order, null, 2)}
-                </pre>
+                <div className="mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-950">
+                  <div className="flex justify-end border-b border-zinc-800 px-2 py-1.5">
+                    <button
+                      type="button"
+                      onClick={copyRawJson}
+                      className="rounded-lg bg-zinc-800 px-2.5 py-1 text-xs font-medium text-zinc-100 hover:bg-zinc-700"
+                    >
+                      {rawCopied ? "Kopyalandı" : "Kopyala"}
+                    </button>
+                  </div>
+                  <pre className="max-h-80 overflow-auto p-3 text-xs leading-relaxed text-zinc-100">
+                    {JSON.stringify(order.raw || order, null, 2)}
+                  </pre>
+                </div>
               ) : null}
             </div>
 

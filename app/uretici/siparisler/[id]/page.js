@@ -187,8 +187,17 @@ export default function ProducerOrderDetailPage() {
         <div className="rounded-2xl bg-emerald-600 px-5 py-4 text-white">
           <p className="text-sm opacity-90">Bu siparişten kazancınız</p>
           <p className="text-3xl font-bold">
-            {formatPrice(order.producer_earning)}
+            {formatPrice(
+              Number(order.producer_earning || 0) +
+                Number(order.material_support || 0)
+            )}
           </p>
+          {Number(order.material_support || 0) > 0 ? (
+            <p className="mt-1 text-sm text-emerald-50">
+              Üretim {formatPrice(order.producer_earning)} · Malzeme desteği{" "}
+              {formatPrice(order.material_support)}
+            </p>
+          ) : null}
         </div>
       )}
 
@@ -227,9 +236,23 @@ export default function ProducerOrderDetailPage() {
                     </span>
                   </p>
                 </div>
-                <p className="shrink-0 text-base font-semibold">
-                  {formatPrice(item.unit_earning * qty)}
-                </p>
+                <div className="shrink-0 text-right">
+                  <p className="text-base font-semibold">
+                    {formatPrice(
+                      Number(item.unit_earning || 0) * qty +
+                        Number(item.unit_material_support || 0) * qty
+                    )}
+                  </p>
+                  {Number(item.unit_material_support || 0) > 0 ? (
+                    <p className="text-xs font-medium text-sky-700">
+                      +
+                      {formatPrice(
+                        Number(item.unit_material_support || 0) * qty
+                      )}{" "}
+                      malzeme
+                    </p>
+                  ) : null}
+                </div>
               </div>
 
               {showStockInfo ? (

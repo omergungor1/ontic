@@ -245,13 +245,23 @@ export default function ProducerOrdersPage() {
                   </p>
                 ) : null}
 
-                <div className="mt-3 flex items-center justify-between text-sm">
+                <div className="mt-3 flex items-end justify-between gap-3 text-sm">
                   <span className="text-zinc-400">
                     {formatDate(order.created_at)}
                   </span>
-                  <span className="font-semibold text-emerald-600">
-                    {formatPrice(order.producer_earning)}
-                  </span>
+                  <div className="text-right">
+                    <p className="font-semibold text-emerald-600">
+                      {formatPrice(
+                        Number(order.producer_earning || 0) +
+                          Number(order.material_support || 0)
+                      )}
+                    </p>
+                    {Number(order.material_support || 0) > 0 ? (
+                      <p className="text-xs font-medium text-sky-700">
+                        +{formatPrice(order.material_support)} malzeme desteği
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               </Link>
             );

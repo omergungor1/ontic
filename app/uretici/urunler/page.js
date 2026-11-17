@@ -3,8 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import ImageLightbox from "@/components/ImageLightbox";
 import StorageImage from "@/components/StorageImage";
+import StarIcon from "@/components/StarIcon";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, truncate } from "@/lib/format";
+
+const SORT_OPTIONS = [
+  { value: "stock-desc", label: "Stok (azalan)" },
+  { value: "stock-asc", label: "Stok (artan)" },
+  { value: "name-asc", label: "İsim (A → Z)" },
+  { value: "name-desc", label: "İsim (Z → A)" },
+  { value: "price-asc", label: "Fiyat (artan)" },
+  { value: "price-desc", label: "Fiyat (azalan)" },
+];
 
 const REQUEST_STATUS = {
   pending: "Beklemede",
@@ -31,12 +41,17 @@ function requestStatusClass(status) {
 export default function ProducerProductsPage() {
   const [rows, setRows] = useState([]);
   const [savedMap, setSavedMap] = useState({});
+  const [pinnedStockMap, setPinnedStockMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
   const requestFileRef = useRef(null);
+
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("stock-desc");
 
   const [requestOpen, setRequestOpen] = useState(false);
   const [requests, setRequests] = useState([]);
@@ -68,19 +83,19 @@ export default function ProducerProductsPage() {
     const { data } = await supabase
       .from("producer_products")
       .select(
-        "*, products!product_id(id, title, description, image_url, brand_name, producer_price)"
+        "*, products!product_id(id, title, description, image_url, brand_name, producer_price, material_support, is_starred, star_bonus)"
       )
       .eq("producer_id", user.id)
       .eq("is_active", true)
       .order("updated_at", { ascending: false });
 
     const list = data || [];
-    setRows(list);
-    setSavedMap(
-      Object.fromEntries(
-        list.map((r) => [r.id, Number(r.stock_quantity || 0)])
-      )
+    const stockSnapshot = Object.fromEntries(
+      list.map((r) => [r.id, Number(r.stock_quantity || 0)])
     );
+    setRows(list);
+    setSavedMap(stockSnapshot);
+    setPinnedStockMap(stockSnapshot);
     setLoading(false);
   }
 
@@ -145,26 +160,38 @@ export default function ProducerProductsPage() {
   async function saveStock(row) {
     const quantity = Math.max(0, Number(row.stock_quantity || 0));
     setSavingId(row.id);
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("producer_products")
-      .update({
-        stock_quantity: quantity,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", row.id);
-    setSavingId("");
-    if (error) {
-      showToast(error.message, "error");
-      return;
+    try {
+      const res = await fetch("/api/uretici/stock", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: row.id, quantity }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Stok güncellenemedi");
+      const savedQty = Number(data.quantity ?? quantity);
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === row.id ? { ...r, stock_quantity: savedQty } : r
+        )
+      );
+      setSavedMap((prev) => ({ ...prev, [row.id]: savedQty }));
+      const bonus = Number(data.starBonus || 0);
+      if (bonus > 0) {
+        showToast(
+          `Stoğa eklendi. ${formatPrice(bonus)} yıldızlı ürün bonusu hesabınıza yazıldı`
+        );
+      } else if (bonus < 0) {
+        showToast(
+          `Stok düşürüldü. ${formatPrice(Math.abs(bonus))} bonus geri alındı`
+        );
+      } else {
+        showToast("Stok güncellendi");
+      }
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setSavingId("");
     }
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === row.id ? { ...r, stock_quantity: quantity } : r
-      )
-    );
-    setSavedMap((prev) => ({ ...prev, [row.id]: quantity }));
-    showToast("Stok güncellendi");
   }
 
   async function uploadRequestImage(file) {
@@ -227,6 +254,48 @@ export default function ProducerProductsPage() {
     0
   );
 
+  const filterActive =
+    Boolean(searchQuery.trim()) || sortBy !== "stock-desc";
+
+  const query = searchQuery.trim().toLocaleLowerCase("tr");
+  let visibleRows = rows;
+  if (query) {
+    visibleRows = visibleRows.filter((row) =>
+      String(row.products?.title || "")
+        .toLocaleLowerCase("tr")
+        .includes(query)
+    );
+  }
+  visibleRows = [...visibleRows].sort((a, b) => {
+    const starA = a.products?.is_starred ? 1 : 0;
+    const starB = b.products?.is_starred ? 1 : 0;
+    if (starA !== starB) return starB - starA;
+
+    const nameA = String(a.products?.title || "");
+    const nameB = String(b.products?.title || "");
+    const priceA = Number(a.products?.producer_price || 0);
+    const priceB = Number(b.products?.producer_price || 0);
+    // Sıralama sayfa yüklenişindeki stoka göre — yazınca/kayıtta zıplamasın
+    const stockA = Number(pinnedStockMap[a.id] ?? a.stock_quantity ?? 0);
+    const stockB = Number(pinnedStockMap[b.id] ?? b.stock_quantity ?? 0);
+
+    switch (sortBy) {
+      case "name-asc":
+        return nameA.localeCompare(nameB, "tr");
+      case "name-desc":
+        return nameB.localeCompare(nameA, "tr");
+      case "price-asc":
+        return priceA - priceB;
+      case "price-desc":
+        return priceB - priceA;
+      case "stock-asc":
+        return stockA - stockB;
+      case "stock-desc":
+      default:
+        return stockB - stockA;
+    }
+  });
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -243,9 +312,75 @@ export default function ProducerProductsPage() {
         </button>
       </div>
 
-      <div className="rounded-2xl bg-orange-600 px-5 py-4 text-white">
-        <p className="text-sm opacity-90">Toplam Stoğunuz</p>
-        <p className="text-3xl font-bold">{totalStock} adet</p>
+      <div className="space-y-2">
+        <div className="flex items-stretch gap-2">
+          <div className="min-w-0 flex-1 rounded-2xl bg-orange-600 px-5 py-4 text-white">
+            <p className="text-sm opacity-90">Toplam Stoğunuz</p>
+            <p className="text-3xl font-bold">{totalStock} adet</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterOpen((open) => !open)}
+            aria-expanded={filterOpen}
+            className={`inline-flex w-28 shrink-0 flex-col items-center justify-center rounded-2xl border px-3 py-3 text-sm font-semibold transition ${
+              filterOpen || filterActive
+                ? "border-orange-300 bg-orange-50 text-orange-700"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+            }`}
+          >
+            <span>Filtre</span>
+            <span className="mt-0.5 text-lg leading-none" aria-hidden="true">
+              {filterOpen ? "▴" : "▾"}
+            </span>
+          </button>
+        </div>
+
+        {filterOpen ? (
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-medium text-zinc-500">
+                  İsim ile ara
+                </span>
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Ürün adı yazın..."
+                  className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm"
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-xs font-medium text-zinc-500">
+                  Sıralama
+                </span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm"
+                >
+                  {SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {filterActive ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setSortBy("stock-desc");
+                }}
+                className="mt-3 text-sm font-medium text-orange-700 hover:underline"
+              >
+                Filtreleri temizle
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {loading ? (
@@ -254,14 +389,24 @@ export default function ProducerProductsPage() {
         <p className="rounded-2xl border border-dashed border-zinc-300 bg-white p-8 text-center text-base text-zinc-500">
           Admin henüz size ürün ataması yapmadı
         </p>
+      ) : visibleRows.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-zinc-300 bg-white p-8 text-center text-base text-zinc-500">
+          Aramanıza uygun ürün bulunamadı
+        </p>
       ) : (
         <div className="space-y-3">
-          {rows.map((row) => {
+          {visibleRows.map((row) => {
             const dirty = isDirty(row);
+            const starred = Boolean(row.products?.is_starred);
+            const starBonus = Number(row.products?.star_bonus || 0);
             return (
               <div
                 key={row.id}
-                className="rounded-2xl border border-zinc-200 bg-white p-4"
+                className={`rounded-2xl border p-4 ${
+                  starred
+                    ? "border-amber-300 bg-amber-50 shadow-[0_0_0_3px_rgba(251,191,36,0.35)]"
+                    : "border-zinc-200 bg-white"
+                }`}
               >
                 <div className="flex items-start gap-3">
                   <button
@@ -288,8 +433,11 @@ export default function ProducerProductsPage() {
                   </button>
 
                   <div className="min-w-0 flex-1">
-                    <p className="text-base font-semibold leading-snug text-zinc-900">
-                      {row.products?.title || "Ürün"}
+                    <p className="flex items-center gap-1.5 text-base font-semibold leading-snug text-zinc-900">
+                      {starred ? (
+                        <StarIcon className="h-4 w-4 shrink-0 text-amber-500" />
+                      ) : null}
+                      <span>{row.products?.title || "Ürün"}</span>
                     </p>
                     <p className="mt-1 text-sm text-zinc-500">
                       {row.products?.brand_name || "Ontic"}
@@ -298,6 +446,19 @@ export default function ProducerProductsPage() {
                       <p className="mt-2 text-sm leading-relaxed text-zinc-600">
                         {truncate(row.products.description, 140)}
                       </p>
+                    ) : null}
+                    {starred ? (
+                      <div className="mt-3 rounded-xl border border-amber-200 bg-white px-3 py-2.5">
+                        <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800">
+                          <StarIcon className="h-4 w-4 text-amber-500" />
+                          Üretirken kazan
+                        </p>
+                        <p className="mt-1 text-sm leading-relaxed text-amber-950">
+                          {starBonus > 0
+                            ? `Yıldızlı ürün. Üretip stoğa eklediğiniz anda birim başına ${formatPrice(starBonus)} yıldızlı ürün bonusu ödemelerinize yazılır. Siparişle stok düşünce bonus sizde kalır. Stoğu elle geri çekerseniz bonus da geri alınır.`
+                            : "Yıldızlı ürün. Üretip stoğa eklediğinizde ek bonus ödemelerinize yansır."}
+                        </p>
+                      </div>
                     ) : null}
                   </div>
                 </div>
@@ -351,9 +512,26 @@ export default function ProducerProductsPage() {
                     <p className="text-xs font-medium text-zinc-500">
                       Üretici fiyatı
                     </p>
-                    <p className="text-base font-bold text-emerald-700">
-                      {formatPrice(row.products?.producer_price)}
-                    </p>
+                    {Number(row.products?.producer_price || 0) > 0 ? (
+                      <p className="text-base font-bold text-emerald-700">
+                        {formatPrice(row.products.producer_price)}
+                      </p>
+                    ) : (
+                      <p className="text-sm font-medium text-amber-700">
+                        Fiyat girilmemiş
+                      </p>
+                    )}
+                    {Number(row.products?.material_support || 0) > 0 ? (
+                      <p className="mt-0.5 text-sm font-medium text-sky-700">
+                        +{formatPrice(row.products.material_support)} malzeme
+                        desteği
+                      </p>
+                    ) : null}
+                    {starred && starBonus > 0 ? (
+                      <p className="mt-0.5 text-sm font-semibold text-amber-700">
+                        +{formatPrice(starBonus)} yıldız bonusu
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </div>

@@ -131,7 +131,7 @@ export default function ProducerLayout({ children }) {
       if (!user) return;
       const { data: prof } = await supabase
         .from("profiles")
-        .select("*")
+        .select("id, full_name, username")
         .eq("id", user.id)
         .maybeSingle();
       setProfile(prof);
