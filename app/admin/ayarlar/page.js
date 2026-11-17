@@ -2,6 +2,64 @@
 
 import { useEffect, useState } from "react";
 
+const HOURS = Array.from({ length: 24 }, (_, index) =>
+  String(index).padStart(2, "0")
+);
+const MINUTES = Array.from({ length: 60 }, (_, index) =>
+  String(index).padStart(2, "0")
+);
+
+function clockParts(value) {
+  const match = /^(\d{2}):(\d{2})$/.exec(String(value || ""));
+  return {
+    hour: match ? match[1] : "09",
+    minute: match ? match[2] : "00",
+  };
+}
+
+function ClockField({ label, value, onChange }) {
+  const { hour, minute } = clockParts(value);
+  const selectClass =
+    "w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 tabular-nums";
+
+  function update(nextHour, nextMinute) {
+    onChange(`${nextHour}:${nextMinute}`);
+  }
+
+  return (
+    <fieldset className="block text-sm">
+      <legend className="mb-1 block text-zinc-500">{label}</legend>
+      <div className="flex items-center gap-2">
+        <select
+          aria-label={`${label} saati`}
+          value={hour}
+          onChange={(event) => update(event.target.value, minute)}
+          className={selectClass}
+        >
+          {HOURS.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <span className="text-zinc-400">:</span>
+        <select
+          aria-label={`${label} dakikası`}
+          value={minute}
+          onChange={(event) => update(hour, event.target.value)}
+          className={selectClass}
+        >
+          {MINUTES.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+      </div>
+    </fieldset>
+  );
+}
+
 export default function AdminSettingsPage() {
   const [settings, setSettings] = useState({
     enabled: false,
@@ -96,28 +154,16 @@ export default function AdminSettingsPage() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1 block text-zinc-500">Başlangıç</span>
-              <input
-                type="time"
-                value={settings.start}
-                onChange={(event) =>
-                  setSettings((prev) => ({ ...prev, start: event.target.value }))
-                }
-                className="w-full rounded-xl border border-zinc-200 px-3 py-2.5"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-zinc-500">Bitiş</span>
-              <input
-                type="time"
-                value={settings.end}
-                onChange={(event) =>
-                  setSettings((prev) => ({ ...prev, end: event.target.value }))
-                }
-                className="w-full rounded-xl border border-zinc-200 px-3 py-2.5"
-              />
-            </label>
+            <ClockField
+              label="Başlangıç"
+              value={settings.start}
+              onChange={(start) => setSettings((prev) => ({ ...prev, start }))}
+            />
+            <ClockField
+              label="Bitiş"
+              value={settings.end}
+              onChange={(end) => setSettings((prev) => ({ ...prev, end }))}
+            />
           </div>
           <p className="text-xs text-zinc-400">
             Saatler Türkiye saatine göredir. Aralık dışında yeni atama ve 3
