@@ -12,7 +12,7 @@ function mergeAndSort(sales, payments, stars) {
     ...sales.map((s) => ({
       type: "sale",
       id: `sale-${s.id}`,
-      date: s.created_at,
+      date: s.shipped_at,
       amount: Number(s.producer_earning || 0),
       materialSupport: Number(s.material_support || 0),
     })),
@@ -62,10 +62,10 @@ export default function ProducerPaymentsPage() {
       hasMoreSales.current
         ? supabase
             .from("producer_orders")
-            .select("id, created_at, producer_earning, material_support")
+            .select("id, shipped_at, producer_earning, material_support")
             .eq("producer_id", uid)
             .in("status", PAYABLE_PRODUCER_ORDER_STATUSES)
-            .order("created_at", { ascending: false })
+            .order("shipped_at", { ascending: false, nullsFirst: false })
             .range(salesFrom, salesFrom + PAGE_SIZE - 1)
         : Promise.resolve({ data: [] }),
       hasMorePayments.current

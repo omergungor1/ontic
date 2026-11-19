@@ -59,7 +59,7 @@ export async function GET(request) {
         let poQuery = admin
           .from("producer_orders")
           .select(
-            "id, producer_id, producer_earning, material_support, status, created_at, shipped_at, trendyol_order_id, trendyol_orders!trendyol_order_id(order_number, order_date), profiles:producer_id(full_name, username)"
+            "id, producer_id, producer_earning, material_support, status, created_at, shipped_at, trendyol_order_id, trendyol_orders!trendyol_order_id(order_number, order_date, is_manual), profiles:producer_id(full_name, username)"
           )
           .in("status", PAYABLE_PRODUCER_ORDER_STATUSES)
           .in("trendyol_order_id", orderIds)
@@ -85,7 +85,7 @@ export async function GET(request) {
       let poQuery = admin
         .from("producer_orders")
         .select(
-          "id, producer_id, producer_earning, material_support, status, created_at, shipped_at, trendyol_order_id, trendyol_orders!trendyol_order_id(order_number, order_date), profiles:producer_id(full_name, username)"
+          "id, producer_id, producer_earning, material_support, status, created_at, shipped_at, trendyol_order_id, trendyol_orders!trendyol_order_id(order_number, order_date, is_manual), profiles:producer_id(full_name, username)"
         )
         .in("status", PAYABLE_PRODUCER_ORDER_STATUSES)
         .not("shipped_at", "is", null)

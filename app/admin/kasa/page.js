@@ -250,6 +250,7 @@ export default function AdminCashPage() {
           meta: {
             orderNumber: po.trendyol_orders?.order_number || "-",
             status: po.status,
+            isManual: Boolean(po.trendyol_orders?.is_manual),
           },
         });
       }
@@ -643,6 +644,7 @@ export default function AdminCashPage() {
                 <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
                   <tr>
                     <th className="whitespace-nowrap px-4 py-3">Tür</th>
+                    <th className="whitespace-nowrap px-4 py-3">Sipariş türü</th>
                     <th className="whitespace-nowrap px-4 py-3">Üretici</th>
                     <th className="min-w-[10rem] whitespace-nowrap px-4 py-3">
                       Detay
@@ -680,6 +682,13 @@ export default function AdminCashPage() {
                               ? "Yıldız bonusu"
                               : "Sipariş"}
                       </span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-zinc-600">
+                      {item.kind === "order"
+                        ? item.meta?.isManual
+                          ? "Manuel"
+                          : "Trendyol"
+                        : "—"}
                     </td>
                     <td className="px-4 py-3 font-medium">
                       {item.producerName}

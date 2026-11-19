@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  AUTO_ASSIGN_NOTE,
+  assignmentReason,
   filterCandidates,
   isExpirable,
   planAssignment,
@@ -59,21 +61,12 @@ test("eksik 2 kabul, eksik 3 tek başına kalır", () => {
   assert.equal(blocked, null);
 });
 
-test("tek kişi yetmezse en fazla ikiye bölünür", () => {
+test("tek kişi yetmezse sipariş bölünmez", () => {
   const plan = planAssignment(
     [line("a", "p", 10)],
     [producer("a", { p: 6 }, 5), producer("b", { p: 4 }, 1)]
   );
-  assert.equal(plan.length, 2);
-  const qty = plan
-    .flatMap((part) => part.lines)
-    .reduce((sum, item) => sum + item.quantity, 0);
-  assert.equal(qty, 10);
-  for (const part of plan) {
-    const owner = part.producerId === "a" ? 6 : 4;
-    const taken = part.lines.reduce((sum, item) => sum + item.quantity, 0);
-    assert.ok(taken - owner <= 2);
-  }
+  assert.equal(plan, null);
 });
 
 test("üç üretici gerekirken otomatik plan yok", () => {
@@ -131,18 +124,30 @@ test("limit, pasif ve bu siparişte elenen üretici dışarıda kalır", () => {
   );
 });
 
-test("süre aşımı yalnızca 3 saati geçmiş created kaydını seçer", () => {
+test("süre aşımı yalnızca oto atanmış ve 3 saati geçmiş created kaydını seçer", () => {
   const now = Date.parse("2026-11-18T12:00:00Z");
+  const old = new Date(now - 3 * 60 * 60 * 1000).toISOString();
   assert.equal(
     isExpirable(
-      { status: "created", created_at: new Date(now - 3 * 60 * 60 * 1000).toISOString() },
+      { status: "created", notes: AUTO_ASSIGN_NOTE, created_at: old },
       now
     ),
     true
   );
   assert.equal(
     isExpirable(
-      { status: "created", created_at: new Date(now - 2 * 60 * 60 * 1000).toISOString() },
+      { status: "created", notes: null, created_at: old },
+      now
+    ),
+    false
+  );
+  assert.equal(
+    isExpirable(
+      {
+        status: "created",
+        notes: AUTO_ASSIGN_NOTE,
+        created_at: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+      },
       now
     ),
     false
@@ -150,12 +155,24 @@ test("süre aşımı yalnızca 3 saati geçmiş created kaydını seçer", () =>
   for (const status of ["confirmed", "ready", "shipped", "completed", "rejected"]) {
     assert.equal(
       isExpirable(
-        { status, created_at: new Date(now - 10 * 60 * 60 * 1000).toISOString() },
+        {
+          status,
+          notes: AUTO_ASSIGN_NOTE,
+          created_at: new Date(now - 10 * 60 * 60 * 1000).toISOString(),
+        },
         now
       ),
       false
     );
   }
+});
+
+test("yeni üretici atama açıklamasında öne çıkar", () => {
+  const text = assignmentReason(
+    { name: "Ayşe", ageDays: 3 },
+    1
+  );
+  assert.match(text, /Yeni üretici Ayşe/);
 });
 
 test("bildirim bir kez gider", () => {
