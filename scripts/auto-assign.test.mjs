@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   AUTO_ASSIGN_NOTE,
+  AUTO_KEEP_NOTE,
   assignmentReason,
+  chooseAssignment,
   filterCandidates,
   isExpirable,
   planAssignment,
@@ -37,16 +39,14 @@ function line(id, productId, quantity) {
 }
 
 test("10 adet stoktaysa siparişin tamamı o üreticiye gider", () => {
-  const plan = planAssignment(
-    [line("a", "p", 10)],
-    [producer("a", { p: 10 }, 1), producer("b", { p: 3 }, 50)]
-  );
+  const everyone = [producer("a", { p: 10 }, 1), producer("b", { p: 3 }, 50)];
+  const plan = chooseAssignment([line("a", "p", 10)], everyone, everyone);
   assert.deepEqual(plan, [
     { producerId: "a", lines: [line("a", "p", 10)] },
   ]);
 });
 
-test("eksik 2 kabul, eksik 3 tek başına kalır", () => {
+test("eksik 2 kabul, ürün birden fazla kişide açıkken eksik 3 kalır", () => {
   const allowed = planAssignment(
     [line("a", "p", 6)],
     [producer("a", { p: 4 })]
@@ -54,40 +54,43 @@ test("eksik 2 kabul, eksik 3 tek başına kalır", () => {
   assert.equal(allowed[0].producerId, "a");
   assert.equal(allowed[0].lines[0].quantity, 6);
 
-  const blocked = planAssignment(
-    [line("a", "p", 6)],
-    [producer("a", { p: 3 })]
-  );
-  assert.equal(blocked, null);
+  const everyone = [producer("a", { p: 3 }), producer("b", { p: 1 })];
+  assert.equal(chooseAssignment([line("a", "p", 6)], everyone, everyone), null);
+});
+
+test("ürün tek kişide açıksa stok sıfır olsa da ona kalır", () => {
+  const elif = producer("elif", { p: 0 }, 0, { name: "Elif Acar" });
+  const plan = chooseAssignment([line("a", "p", 6)], [elif], []);
+  assert.equal(plan[0].producerId, "elif");
+  assert.equal(plan[0].keep, true);
+  assert.equal(plan[0].lines[0].quantity, 6);
 });
 
 test("tek kişi yetmezse sipariş bölünmez", () => {
-  const plan = planAssignment(
-    [line("a", "p", 10)],
-    [producer("a", { p: 6 }, 5), producer("b", { p: 4 }, 1)]
-  );
+  const everyone = [producer("a", { p: 6 }, 5), producer("b", { p: 4 }, 1)];
+  const plan = chooseAssignment([line("a", "p", 10)], everyone, everyone);
   assert.equal(plan, null);
 });
 
 test("üç üretici gerekirken otomatik plan yok", () => {
-  const plan = planAssignment(
-    [line("a", "p", 10)],
-    [
-      producer("a", { p: 2 }),
-      producer("b", { p: 2 }),
-      producer("c", { p: 2 }),
-    ]
-  );
+  const everyone = [
+    producer("a", { p: 2 }),
+    producer("b", { p: 2 }),
+    producer("c", { p: 2 }),
+  ];
+  const plan = chooseAssignment([line("a", "p", 10)], everyone, everyone);
   assert.equal(plan, null);
 });
 
 test("yalnızca bir üreticide açık ürün ona gider", () => {
-  const plan = planAssignment(
+  const everyone = [
+    producer("a", { ozel: 5, ortak: 0 }, 1),
+    producer("b", { ortak: 5 }, 20),
+  ];
+  const plan = chooseAssignment(
     [line("a", "ozel", 1), line("b", "ortak", 1)],
-    [
-      producer("a", { ozel: 5, ortak: 0 }, 1),
-      producer("b", { ortak: 5 }, 20),
-    ]
+    everyone,
+    everyone
   );
   assert.ok(plan.some((part) => part.producerId === "a"));
   const special = plan
@@ -97,10 +100,8 @@ test("yalnızca bir üreticide açık ürün ona gider", () => {
 });
 
 test("düşük eksik, yüksek skoru geçer", () => {
-  const plan = planAssignment(
-    [line("a", "p", 10)],
-    [producer("slow", { p: 10 }, 1), producer("fast", { p: 8 }, 100)]
-  );
+  const everyone = [producer("slow", { p: 10 }, 1), producer("fast", { p: 8 }, 100)];
+  const plan = chooseAssignment([line("a", "p", 10)], everyone, everyone);
   assert.equal(plan.length, 1);
   assert.equal(plan[0].producerId, "slow");
 });
@@ -152,6 +153,13 @@ test("süre aşımı yalnızca oto atanmış ve 3 saati geçmiş created kaydın
     ),
     false
   );
+  assert.equal(
+    isExpirable(
+      { status: "created", notes: AUTO_KEEP_NOTE, created_at: old },
+      now
+    ),
+    false
+  );
   for (const status of ["confirmed", "ready", "shipped", "completed", "rejected"]) {
     assert.equal(
       isExpirable(
@@ -165,6 +173,12 @@ test("süre aşımı yalnızca oto atanmış ve 3 saati geçmiş created kaydın
       false
     );
   }
+});
+
+test("tek üretici ataması kalıcı diye açıklanır", () => {
+  const text = assignmentReason({ name: "Elif Acar" }, 6, { keep: true });
+  assert.match(text, /Elif Acar bu ürünü üreten tek kişi/);
+  assert.match(text, /Atama kalıcı/);
 });
 
 test("yeni üretici atama açıklamasında öne çıkar", () => {

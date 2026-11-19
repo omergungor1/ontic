@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { formatDate } from "@/lib/format";
 
 const HOURS = Array.from({ length: 24 }, (_, index) =>
   String(index).padStart(2, "0")
@@ -15,6 +17,201 @@ function clockParts(value) {
     hour: match ? match[1] : "09",
     minute: match ? match[2] : "00",
   };
+}
+
+const ACTION_TONE = {
+  assigned: "bg-emerald-50 text-emerald-800",
+  held: "bg-amber-50 text-amber-800",
+  expired: "bg-rose-50 text-rose-700",
+  kept: "bg-orange-50 text-orange-800",
+};
+
+function HistoryIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-5 w-5"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v5h5" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
+function AutoAssignLogModal({ onClose }) {
+  const [logs, setLogs] = useState([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const scrollerRef = useRef(null);
+  const sentinelRef = useRef(null);
+  const logsRef = useRef([]);
+  const busyRef = useRef(false);
+
+  useEffect(() => {
+    logsRef.current = logs;
+  }, [logs]);
+
+  useEffect(() => {
+    function onKey(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadFirst() {
+      busyRef.current = true;
+      try {
+        const res = await fetch("/api/admin/auto-assign-logs?offset=0&limit=25");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Kayıtlar yüklenemedi");
+        if (cancelled) return;
+        setLogs(data.logs || []);
+        setHasMore(Boolean(data.hasMore));
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        busyRef.current = false;
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadFirst();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const root = scrollerRef.current;
+    const target = sentinelRef.current;
+    if (loading || !hasMore || !root || !target) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting) || busyRef.current) {
+          return;
+        }
+        const offset = logsRef.current.length;
+        busyRef.current = true;
+        fetch(`/api/admin/auto-assign-logs?offset=${offset}&limit=25`)
+          .then(async (res) => {
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Kayıtlar yüklenemedi");
+            const incoming = data.logs || [];
+            setLogs((prev) => {
+              const seen = new Set(prev.map((row) => row.id));
+              return [
+                ...prev,
+                ...incoming.filter((row) => !seen.has(row.id)),
+              ];
+            });
+            setHasMore(Boolean(data.hasMore));
+          })
+          .catch((err) => setError(err.message))
+          .finally(() => {
+            busyRef.current = false;
+          });
+      },
+      { root, rootMargin: "160px" }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loading, hasMore, logs.length]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auto-assign-log-title"
+        className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-white sm:max-h-[85vh] sm:rounded-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-zinc-100 px-5 py-4">
+          <div>
+            <h2 id="auto-assign-log-title" className="text-lg font-semibold">
+              Oto dağıtım geçmişi
+            </h2>
+            <p className="text-sm text-zinc-500">
+              Atama, bekleme ve iptal kayıtları
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
+          >
+            Kapat
+          </button>
+        </div>
+
+        <div
+          ref={scrollerRef}
+          className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4"
+        >
+          {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+          {loading ? <p className="text-sm text-zinc-500">Yükleniyor...</p> : null}
+          {!loading && !logs.length ? (
+            <p className="text-sm text-zinc-500">Henüz kayıt yok.</p>
+          ) : null}
+
+          {logs.map((row) => (
+            <article
+              key={row.id}
+              className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                    ACTION_TONE[row.action] || "bg-zinc-100 text-zinc-700"
+                  }`}
+                >
+                  {row.actionLabel}
+                </span>
+                <time className="text-xs text-zinc-500">
+                  {formatDate(row.createdAt)}
+                </time>
+              </div>
+              <p className="mt-2 text-sm text-zinc-800">{row.detail}</p>
+              {row.orderNumber || row.producerName ? (
+                <p className="mt-2 text-xs text-zinc-500">
+                  {row.orderId && row.orderNumber ? (
+                    <Link
+                      href={`/admin/siparisler/${row.orderId}`}
+                      className="font-medium text-orange-700"
+                    >
+                      {row.orderNumber}
+                    </Link>
+                  ) : null}
+                  {row.orderNumber && row.producerName ? " · " : null}
+                  {row.producerName}
+                </p>
+              ) : null}
+            </article>
+          ))}
+
+          {hasMore && !loading ? (
+            <div ref={sentinelRef} className="py-2 text-center text-xs text-zinc-400">
+              Daha eski kayıtlar yükleniyor...
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ClockField({ label, value, onChange }) {
@@ -70,6 +267,7 @@ export default function AdminSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [logsOpen, setLogsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,15 +371,29 @@ export default function AdminSettingsPage() {
           {error ? <p className="text-sm text-rose-600">{error}</p> : null}
           {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
-          >
-            {saving ? "Kaydediliyor..." : "Kaydet"}
-          </button>
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+            >
+              {saving ? "Kaydediliyor..." : "Kaydet"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setLogsOpen(true)}
+              aria-label="Oto dağıtım geçmişi"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+            >
+              <HistoryIcon />
+            </button>
+          </div>
         </form>
       )}
+
+      {logsOpen ? (
+        <AutoAssignLogModal onClose={() => setLogsOpen(false)} />
+      ) : null}
     </div>
   );
 }
