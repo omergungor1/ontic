@@ -4,6 +4,7 @@ import Link from "next/link";
 import StorageImage from "@/components/StorageImage";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import CargoCompanySelect from "@/components/CargoCompanySelect";
 import PhoneInput from "@/components/PhoneInput";
 import BackButton from "@/components/BackButton";
 import ProducerPerformancePanel, {
@@ -77,6 +78,74 @@ function PencilIcon() {
       />
       <path d="m13.5 6.5 3 3" strokeLinecap="round" />
     </svg>
+  );
+}
+
+function SwitchControl({ checked, onClick, label }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={onClick}
+      className="inline-flex items-center gap-2 text-sm text-zinc-700"
+    >
+      <span>{label}</span>
+      <span
+        className={`relative h-7 w-12 shrink-0 rounded-full transition ${
+          checked ? "bg-orange-600" : "bg-zinc-300"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition ${
+            checked ? "left-5" : "left-0.5"
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
+function FieldHelp({ title, text }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={`${title} açıklaması`}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-zinc-300 text-[11px] font-semibold leading-none text-zinc-500 transition hover:border-zinc-400 hover:text-zinc-800"
+      >
+        i
+      </button>
+      {open ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-md space-y-3 rounded-2xl bg-white p-5 shadow-xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="text-lg font-semibold">{title}</h3>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
+              >
+                Kapat
+              </button>
+            </div>
+            <p className="text-sm leading-6 text-zinc-600">{text}</p>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -199,6 +268,7 @@ export default function AdminProducerDetailPage() {
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [multiplierEditing, setMultiplierEditing] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [cargoCompanies, setCargoCompanies] = useState([]);
 
   const [form, setForm] = useState({
     fullName: "",
@@ -207,10 +277,12 @@ export default function AdminProducerDetailPage() {
     district: "",
     iban: "",
     email: "",
+    cargoCompanyId: "",
     adminNote: "",
     personMultiplier: 1,
     maxOpenOrders: "",
     isActive: true,
+    skipAutoAssign: false,
   });
 
   const [products, setProducts] = useState([]);
@@ -256,6 +328,7 @@ export default function AdminProducerDetailPage() {
         district: data.producer.district || "",
         iban: data.producer.iban || "",
         email: data.producer.email || "",
+        cargoCompanyId: data.producer.cargo_company_id || "",
         adminNote: data.producer.admin_note || "",
         personMultiplier: normalizePersonMultiplier(
           data.producer.person_multiplier
@@ -265,7 +338,24 @@ export default function AdminProducerDetailPage() {
             ? ""
             : String(data.producer.max_open_orders),
         isActive: data.producer.is_active,
+        skipAutoAssign: Boolean(data.producer.skip_auto_assign),
       });
+
+      try {
+        const cargoRes = await fetch("/api/admin/cargo-companies");
+        const cargoData = await cargoRes.json();
+        if (cargoRes.ok) {
+          setCargoCompanies(
+            (cargoData.companies || []).map((company) => ({
+              id: company.id,
+              name: company.name,
+              is_active: company.isActive,
+            }))
+          );
+        }
+      } catch {
+        setCargoCompanies([]);
+      }
 
       const supabase = createClient();
       const { data: allProducts } = await supabase
@@ -1216,6 +1306,19 @@ export default function AdminProducerDetailPage() {
                 />
               </label>
               <label className="block text-sm">
+                <span className="mb-1 block text-zinc-500">
+                  Tercih edilen kargo
+                </span>
+                <CargoCompanySelect
+                  companies={cargoCompanies}
+                  value={form.cargoCompanyId}
+                  onChange={(cargoCompanyId) =>
+                    setForm((prev) => ({ ...prev, cargoCompanyId }))
+                  }
+                  className="w-full rounded-xl border px-3 py-2.5"
+                />
+              </label>
+              <label className="block text-sm">
                 <span className="mb-1 block text-zinc-500">IBAN</span>
                 <input
                   value={form.iban}
@@ -1226,29 +1329,18 @@ export default function AdminProducerDetailPage() {
                   className="w-full rounded-xl border px-3 py-2.5"
                 />
               </label>
-              <div className="block text-sm sm:col-span-2">
-                <span className="mb-1 block text-zinc-500">Kişi çarpanı</span>
-                <PersonMultiplierField
-                  value={form.personMultiplier}
-                  editing={multiplierEditing}
-                  onToggleEdit={() => setMultiplierEditing((open) => !open)}
-                  onChange={(personMultiplier) =>
-                    setForm((prev) => ({ ...prev, personMultiplier }))
-                  }
-                />
-                <span className="mt-1 block text-xs text-zinc-400">
-                  Bu hesabı aynı anda kaç kişi kullanıyor. Sipariş adedi bu
-                  sayıyla çarpılarak gönderilecek miktar hesaplanır. Varsayılan
-                  1. Kazancı değiştirmez.
-                </span>
-              </div>
-              <label className="block text-sm sm:col-span-2">
-                <span className="mb-1 block text-zinc-500">
+              <div className="block text-sm">
+                <span className="mb-1 flex items-center gap-1.5 text-zinc-500">
                   Açık sipariş limiti
+                  <FieldHelp
+                    title="Açık sipariş limiti"
+                    text="Kargolanmamış sipariş bu sayıya ulaşınca oto dağıtım yeni iş vermez. Boş bırakılırsa sınır yoktur."
+                  />
                 </span>
                 <input
                   type="number"
                   min="1"
+                  aria-label="Açık sipariş limiti"
                   value={form.maxOpenOrders}
                   onChange={(e) =>
                     setForm((prev) => ({
@@ -1259,25 +1351,48 @@ export default function AdminProducerDetailPage() {
                   placeholder="Limitsiz"
                   className="w-full rounded-xl border px-3 py-2.5"
                 />
-                <span className="mt-1 block text-xs text-zinc-400">
-                  Kargolanmamış sipariş bu sayıya ulaşınca oto dağıtım yeni iş
-                  vermez. Boş bırakılırsa sınır yoktur.
+              </div>
+              <div className="block text-sm sm:col-span-2">
+                <span className="mb-1 flex items-center gap-1.5 text-zinc-500">
+                  Kişi çarpanı
+                  <FieldHelp
+                    title="Kişi çarpanı"
+                    text="Bu hesabı aynı anda kaç kişi kullanıyor. Sipariş adedi bu sayıyla çarpılarak gönderilecek miktar hesaplanır. Varsayılan 1. Kazancı değiştirmez."
+                  />
                 </span>
-              </label>
-              <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                <input
-                  type="checkbox"
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <PersonMultiplierField
+                    value={form.personMultiplier}
+                    editing={multiplierEditing}
+                    onToggleEdit={() => setMultiplierEditing((open) => !open)}
+                    onChange={(personMultiplier) =>
+                      setForm((prev) => ({ ...prev, personMultiplier }))
+                    }
+                  />
+                  <SwitchControl
+                    checked={form.skipAutoAssign}
+                    onClick={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        skipAutoAssign: !prev.skipAutoAssign,
+                      }))
+                    }
+                    label="Üreticiye otomatik atama yapma"
+                  />
+                </div>
+              </div>
+              <div className="sm:col-span-2">
+                <SwitchControl
                   checked={form.isActive}
-                  onChange={(e) =>
+                  onClick={() =>
                     setForm((prev) => ({
                       ...prev,
-                      isActive: e.target.checked,
+                      isActive: !prev.isActive,
                     }))
                   }
-                  className="h-4 w-4"
+                  label="Hesap aktif"
                 />
-                <span>Hesap aktif</span>
-              </label>
+              </div>
             </div>
             <label className="mt-3 block text-sm">
               <span className="mb-1 block text-zinc-500">

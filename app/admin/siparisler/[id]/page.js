@@ -169,13 +169,26 @@ export default function AdminOrderDetailPage() {
       .eq("order_id", orderId)
       .order("created_at", { ascending: true });
 
-    const { data: producerOrdersData } = await supabase
+    let producerOrdersResult = await supabase
       .from("producer_orders")
       .select(
-        "*, profiles!producer_id(full_name, username, person_multiplier), producer_order_items(*, products!product_id(title))"
+        "*, profiles!producer_id(full_name, username, person_multiplier, cargo_companies(name)), producer_order_items(*, products!product_id(title))"
       )
       .eq("trendyol_order_id", orderId)
       .order("created_at", { ascending: false });
+    if (
+      producerOrdersResult.error &&
+      /cargo_companies/i.test(producerOrdersResult.error.message || "")
+    ) {
+      producerOrdersResult = await supabase
+        .from("producer_orders")
+        .select(
+          "*, profiles!producer_id(full_name, username, person_multiplier), producer_order_items(*, products!product_id(title))"
+        )
+        .eq("trendyol_order_id", orderId)
+        .order("created_at", { ascending: false });
+    }
+    const producerOrdersData = producerOrdersResult.data;
 
     const { data: producers } = await supabase
       .from("profiles")
@@ -787,6 +800,17 @@ export default function AdminOrderDetailPage() {
                     <p className="font-medium">{po.profiles?.full_name}</p>
                     <p className="text-xs text-zinc-500">
                       @{po.profiles?.username} · {formatDate(po.created_at)}
+                    </p>
+                    <p
+                      className={`mt-1 text-xs font-medium ${
+                        po.profiles?.cargo_companies?.name
+                          ? "text-zinc-700"
+                          : "text-amber-700"
+                      }`}
+                    >
+                      {po.profiles?.cargo_companies?.name
+                        ? po.profiles.cargo_companies.name
+                        : "Tercih edilen kargo yok"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

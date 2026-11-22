@@ -214,6 +214,125 @@ function AutoAssignLogModal({ onClose }) {
   );
 }
 
+function CargoCompanyManager() {
+  const [companies, setCompanies] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    const res = await fetch("/api/admin/cargo-companies");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Kargo firmaları yüklenemedi");
+    setCompanies(data.companies || []);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    load()
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function addCompany(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/cargo-companies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Eklenemedi");
+      setName("");
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleCompany(company) {
+    setError("");
+    const res = await fetch("/api/admin/cargo-companies", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: company.id, isActive: !company.isActive }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || "Güncellenemedi");
+      return;
+    }
+    setCompanies((prev) =>
+      prev.map((item) => (item.id === company.id ? data.company : item))
+    );
+  }
+
+  return (
+    <section className="max-w-xl space-y-4 rounded-2xl border border-zinc-200 bg-white p-5">
+      <div>
+        <h2 className="font-semibold">Kargo firmaları</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          Üreticiler aktif firmalardan birini tercih eder. Pasif firma yeni
+          seçimlerde görünmez.
+        </p>
+      </div>
+      {loading ? <p className="text-sm text-zinc-500">Yükleniyor...</p> : null}
+      {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+      <ul className="space-y-2">
+        {companies.map((company) => (
+          <li
+            key={company.id}
+            className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 px-3 py-2"
+          >
+            <span className={company.isActive ? "text-sm" : "text-sm text-zinc-400"}>
+              {company.name}
+            </span>
+            <button
+              type="button"
+              onClick={() => toggleCompany(company)}
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                company.isActive
+                  ? "bg-emerald-50 text-emerald-800"
+                  : "bg-zinc-100 text-zinc-500"
+              }`}
+            >
+              {company.isActive ? "Aktif" : "Pasif"}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <form onSubmit={addCompany} className="flex gap-2">
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Yeni firma adı"
+          className="min-w-0 flex-1 rounded-xl border border-zinc-200 px-3 py-2.5 text-sm"
+        />
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+        >
+          Ekle
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function ClockField({ label, value, onChange }) {
   const { hour, minute } = clockParts(value);
   const selectClass =
@@ -315,7 +434,7 @@ export default function AdminSettingsPage() {
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold">Ayarlar</h1>
-        <p className="text-zinc-500">Oto dağıtım ve çalışma saatleri</p>
+        <p className="text-zinc-500">Oto dağıtım, çalışma saatleri ve kargo firmaları</p>
       </div>
 
       {loading ? (
@@ -390,6 +509,8 @@ export default function AdminSettingsPage() {
           </div>
         </form>
       )}
+
+      <CargoCompanyManager />
 
       {logsOpen ? (
         <AutoAssignLogModal onClose={() => setLogsOpen(false)} />

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import AnnouncementSlider from "@/components/AnnouncementSlider";
+import CargoCompanySelect from "@/components/CargoCompanySelect";
 import PhoneInput from "@/components/PhoneInput";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
@@ -55,6 +56,7 @@ const emptySettings = {
   district: "",
   iban: "",
   email: "",
+  cargoCompanyId: "",
 };
 
 export default function ProducerHomePage() {
@@ -67,6 +69,12 @@ export default function ProducerHomePage() {
   const [remainingPayment, setRemainingPayment] = useState(0);
   const [fullName, setFullName] = useState("");
   const [emailMissing, setEmailMissing] = useState(false);
+  const [cargoMissing, setCargoMissing] = useState(false);
+  const [cargoOpen, setCargoOpen] = useState(false);
+  const [cargoCompanies, setCargoCompanies] = useState([]);
+  const [cargoChoice, setCargoChoice] = useState("");
+  const [cargoSaving, setCargoSaving] = useState(false);
+  const [cargoError, setCargoError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState(emptySettings);
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -88,13 +96,25 @@ export default function ProducerHomePage() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: profile } = await supabase
+      let profileResult = await supabase
         .from("profiles")
-        .select("full_name, email")
+        .select("full_name, email, cargo_company_id")
         .eq("id", user.id)
         .maybeSingle();
+      if (
+        profileResult.error &&
+        /cargo_company_id/i.test(profileResult.error.message || "")
+      ) {
+        profileResult = await supabase
+          .from("profiles")
+          .select("full_name, email")
+          .eq("id", user.id)
+          .maybeSingle();
+      }
+      const profile = profileResult.data;
       setFullName(profile?.full_name || "");
       setEmailMissing(!String(profile?.email || "").trim());
+      setCargoMissing(!profile?.cargo_company_id);
 
       const { data: announcementRows } = await supabase
         .from("announcements")
@@ -175,6 +195,45 @@ export default function ProducerHomePage() {
     load();
   }, []);
 
+  async function openCargoModal() {
+    setCargoOpen(true);
+    setCargoError("");
+    setCargoChoice("");
+    if (cargoCompanies.length) return;
+    try {
+      const res = await fetch("/api/uretici/profile");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Kargo firmaları yüklenemedi");
+      setCargoCompanies(data.cargoCompanies || []);
+      setCargoChoice(data.profile?.cargo_company_id || "");
+    } catch (err) {
+      setCargoError(err.message);
+    }
+  }
+
+  async function saveCargo(event) {
+    event.preventDefault();
+    setCargoSaving(true);
+    setCargoError("");
+    try {
+      if (!cargoChoice) throw new Error("Bir kargo firması seçin");
+      const res = await fetch("/api/uretici/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cargoOnly: true, cargoCompanyId: cargoChoice }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Kaydedilemedi");
+      setCargoMissing(false);
+      setSettings((prev) => ({ ...prev, cargoCompanyId: cargoChoice }));
+      setCargoOpen(false);
+    } catch (err) {
+      setCargoError(err.message);
+    } finally {
+      setCargoSaving(false);
+    }
+  }
+
   async function openSettings() {
     setSettingsOpen(true);
     setSettingsError("");
@@ -193,7 +252,9 @@ export default function ProducerHomePage() {
         district: data.profile?.district || "",
         iban: data.profile?.iban || "",
         email: data.profile?.email || "",
+        cargoCompanyId: data.profile?.cargo_company_id || "",
       });
+      setCargoCompanies(data.cargoCompanies || []);
     } catch (err) {
       setSettingsError(err.message);
     } finally {
@@ -219,6 +280,7 @@ export default function ProducerHomePage() {
       if (!res.ok) throw new Error(data.error || "Kaydedilemedi");
       setFullName(settings.fullName.trim());
       setEmailMissing(!String(settings.email || "").trim());
+      setCargoMissing(!settings.cargoCompanyId);
       setSettingsMessage("Ayarlar kaydedildi");
     } catch (err) {
       setSettingsError(err.message);
@@ -257,6 +319,21 @@ export default function ProducerHomePage() {
         >
           <span className="text-base font-semibold">
             Mail bilginiz boş, lütfen doldurunuz.
+          </span>
+          <span className="text-2xl" aria-hidden="true">
+            →
+          </span>
+        </button>
+      ) : null}
+
+      {cargoMissing ? (
+        <button
+          type="button"
+          onClick={openCargoModal}
+          className="flex w-full items-center justify-between rounded-2xl bg-amber-500 px-5 py-4 text-left text-white transition hover:bg-amber-600"
+        >
+          <span className="text-base font-semibold">
+            Tercih ettiğiniz kargo firmasını seçiniz.
           </span>
           <span className="text-2xl" aria-hidden="true">
             →
@@ -534,6 +611,18 @@ export default function ProducerHomePage() {
                   />
                 </label>
                 <label className="block text-sm sm:col-span-2">
+                  <span className="mb-1 block text-zinc-500">
+                    Tercih edilen kargo
+                  </span>
+                  <CargoCompanySelect
+                    companies={cargoCompanies}
+                    value={settings.cargoCompanyId}
+                    onChange={(cargoCompanyId) =>
+                      setSettings((prev) => ({ ...prev, cargoCompanyId }))
+                    }
+                  />
+                </label>
+                <label className="block text-sm sm:col-span-2">
                   <span className="mb-1 block text-zinc-500">E-posta</span>
                   <input
                     type="email"
@@ -576,6 +665,57 @@ export default function ProducerHomePage() {
                 className="rounded-xl bg-orange-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
               >
                 {settingsSaving ? "Kaydediliyor..." : "Kaydet"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {cargoOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+          onClick={() => {
+            if (!cargoSaving) setCargoOpen(false);
+          }}
+        >
+          <form
+            onSubmit={saveCargo}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cargo-choice-title"
+            className="w-full max-w-lg rounded-t-3xl bg-white p-5 sm:rounded-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="cargo-choice-title" className="text-lg font-semibold">
+              Tercih edilen kargo
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Kargo kodunuz bu firmaya göre hazırlanır.
+            </p>
+            <div className="mt-4">
+              <CargoCompanySelect
+                companies={cargoCompanies}
+                value={cargoChoice}
+                onChange={setCargoChoice}
+              />
+            </div>
+            {cargoError ? (
+              <p className="mt-3 text-sm text-rose-600">{cargoError}</p>
+            ) : null}
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setCargoOpen(false)}
+                className="rounded-xl border border-zinc-200 py-2.5 text-sm font-medium"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="submit"
+                disabled={cargoSaving}
+                className="rounded-xl bg-orange-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {cargoSaving ? "Kaydediliyor..." : "Kaydet"}
               </button>
             </div>
           </form>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { decryptPassword, encryptPassword } from "@/lib/crypto";
+import { resolveCargoCompanyId } from "@/lib/cargo-companies";
 import { parsePersonMultiplier } from "@/lib/person-multiplier";
 import { normalizePhone } from "@/lib/phone";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -96,6 +97,32 @@ export async function PATCH(request, { params }) {
       }
     }
 
+    let activatedAt;
+    if (body.isActive === true) {
+      const { data: current } = await admin
+        .from("profiles")
+        .select("is_active")
+        .eq("id", id)
+        .maybeSingle();
+      if (current && current.is_active === false) {
+        activatedAt = new Date().toISOString();
+      }
+    }
+
+    let cargoCompanyId;
+    if (body.cargoCompanyId !== undefined) {
+      const { data: currentCargo } = await admin
+        .from("profiles")
+        .select("cargo_company_id")
+        .eq("id", id)
+        .maybeSingle();
+      cargoCompanyId = await resolveCargoCompanyId(
+        admin,
+        body.cargoCompanyId,
+        currentCargo?.cargo_company_id || null
+      );
+    }
+
     const updates = {
       full_name: body.fullName,
       phone: body.phone,
@@ -107,6 +134,10 @@ export async function PATCH(request, { params }) {
       person_multiplier: body.personMultiplier,
       max_open_orders: body.maxOpenOrders,
       is_active: body.isActive,
+      skip_auto_assign:
+        body.skipAutoAssign === undefined ? undefined : Boolean(body.skipAutoAssign),
+      cargo_company_id: cargoCompanyId,
+      activated_at: activatedAt,
       updated_at: new Date().toISOString(),
     };
 
@@ -122,11 +153,25 @@ export async function PATCH(request, { params }) {
       if (authError) throw authError;
     }
 
-    const { error } = await admin.from("profiles").update(updates).eq("id", id);
+    let { error } = await admin.from("profiles").update(updates).eq("id", id);
+    if (error && updates.activated_at && /activated_at/i.test(error.message || "")) {
+      delete updates.activated_at;
+      ({ error } = await admin.from("profiles").update(updates).eq("id", id));
+    }
     if (error) {
       if (/person_multiplier/i.test(error.message || "")) {
         throw new Error(
           "profiles.person_multiplier sütunu yok. Supabase SQL Editor'da scripts/add-person-multiplier.sql dosyasını çalıştırın."
+        );
+      }
+      if (/skip_auto_assign/i.test(error.message || "")) {
+        throw new Error(
+          "Oto atama anahtarı henüz hazır değil. scripts/add-skip-auto-assign.sql dosyasını çalıştırın."
+        );
+      }
+      if (/cargo_company_id|cargo_companies/i.test(error.message || "")) {
+        throw new Error(
+          "Kargo firmaları henüz hazır değil. scripts/add-cargo-companies.sql dosyasını çalıştırın."
         );
       }
       if (/email/i.test(error.message || "")) {

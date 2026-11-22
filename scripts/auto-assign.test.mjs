@@ -4,6 +4,7 @@ import {
   AUTO_ASSIGN_NOTE,
   AUTO_KEEP_NOTE,
   assignmentReason,
+  balanceReady,
   chooseAssignment,
   filterCandidates,
   isExpirable,
@@ -112,6 +113,38 @@ test("yeni hesap büyük siparişte elenir, küçük siparişte kalır", () => {
   assert.equal(filterCandidates([newbie], 2).length, 1);
 });
 
+test("bekleyen sipariş 2 ise yeni atama yapılmaz", () => {
+  const rows = [
+    producer("dolu", { p: 5 }, 0, { openCount: 2 }),
+    producer("genis", { p: 5 }, 0, { openCount: 2, maxOpen: 8 }),
+    producer("bos", { p: 1 }, 0, { openCount: 1 }),
+  ];
+  assert.deepEqual(
+    filterCandidates(rows, 1).map((row) => row.id),
+    ["bos"]
+  );
+});
+
+test("ürünü tek üreten kişinin bekleyen siparişi çok olsa da ona kalır", () => {
+  const elif = producer("elif", { p: 0 }, 0, { openCount: 10, name: "Elif Acar" });
+  const plan = chooseAssignment([line("a", "p", 4)], [elif], []);
+  assert.equal(plan[0].producerId, "elif");
+  assert.equal(plan[0].keep, true);
+});
+
+test("oto ataması kapalı üretici tek üreten olsa da elenir", () => {
+  const rows = [
+    producer("test", { p: 8 }, 0, { skipAutoAssign: true }),
+    producer("gercek", { p: 1 }),
+  ];
+  assert.deepEqual(
+    filterCandidates(rows, 1).map((row) => row.id),
+    ["gercek"]
+  );
+  const only = [producer("test", { p: 0 }, 0, { skipAutoAssign: true })];
+  assert.equal(chooseAssignment([line("a", "p", 2)], only, only), null);
+});
+
 test("limit, pasif ve bu siparişte elenen üretici dışarıda kalır", () => {
   const rows = [
     producer("limit", { p: 5 }, 0, { maxOpen: 2, openCount: 2 }),
@@ -215,9 +248,29 @@ test("anahtar kapalıyken ve saat dışında dağıtım yok", () => {
 
 test("kişi başı kazancı düşük olan daha yüksek skor alır", () => {
   const [low, high] = scoreProducers([
-    producer("low", {}, 0, { earnings30: 300, multiplier: 3, ageDays: 30 }),
-    producer("high", {}, 0, { earnings30: 900, multiplier: 1, ageDays: 30 }),
+    producer("low", {}, 0, { earnings30: 300, multiplier: 3, ageDays: 40 }),
+    producer("high", {}, 0, { earnings30: 900, multiplier: 1, ageDays: 40 }),
   ]);
+  assert.ok(low.score > high.score);
+});
+
+test("yeni üretici sıfır geliriyle gelir denkliğinden puan almaz", () => {
+  const [newbie, veteran] = scoreProducers([
+    producer("new", {}, 0, { earnings30: 0, ageDays: 4 }),
+    producer("old", {}, 0, { earnings30: 4000, ageDays: 60 }),
+  ]);
+  assert.equal(balanceReady(newbie), false);
+  assert.ok(newbie.score <= veteran.score);
+});
+
+test("yeni aktif edilen üretici bir haftalık boşluğu kovalamaz", () => {
+  const [back, low, high] = scoreProducers([
+    producer("back", {}, 0, { earnings30: 0, ageDays: 80, activatedDays: 6 }),
+    producer("low", {}, 0, { earnings30: 200, ageDays: 80 }),
+    producer("high", {}, 0, { earnings30: 2000, ageDays: 80 }),
+  ]);
+  assert.equal(balanceReady(back), false);
+  assert.ok(back.score < low.score);
   assert.ok(low.score > high.score);
 });
 
