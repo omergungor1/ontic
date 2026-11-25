@@ -482,10 +482,6 @@ export default function AdminSettingsPage() {
               onChange={(end) => setSettings((prev) => ({ ...prev, end }))}
             />
           </div>
-          <p className="text-xs text-zinc-400">
-            Saatler Türkiye saatine göredir. Aralık dışında yeni atama ve 3
-            saatlik onay iptali yapılmaz.
-          </p>
 
           {error ? <p className="text-sm text-rose-600">{error}</p> : null}
           {message ? <p className="text-sm text-emerald-700">{message}</p> : null}

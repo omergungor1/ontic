@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveCargoCompanyId } from "@/lib/cargo-companies";
 import { releaseProducerOrder, deductProducerStockOnShip } from "@/lib/producer-orders";
 
 export async function PATCH(request, { params }) {
@@ -82,13 +83,53 @@ export async function PATCH(request, { params }) {
       }
       updates.cargo_image_url = body.cargoImageUrl;
     }
+    if (body.cargoCompanyId !== undefined) {
+      const producerMaySet =
+        isOwner &&
+        order.status === "created" &&
+        (body.status == null || body.status === "confirmed");
+      if (!isAdmin && !producerMaySet) {
+        return NextResponse.json(
+          { error: "Onaydan sonra kargo firması değiştirilemez" },
+          { status: 400 }
+        );
+      }
+      updates.cargo_company_id = await resolveCargoCompanyId(
+        admin,
+        body.cargoCompanyId,
+        order.cargo_company_id
+      );
+    }
+    if (
+      isOwner &&
+      body.status === "confirmed" &&
+      order.status === "created" &&
+      !updates.cargo_company_id &&
+      !order.cargo_company_id
+    ) {
+      return NextResponse.json(
+        { error: "Kargo firması seçin" },
+        { status: 400 }
+      );
+    }
     if (body.notes !== undefined && isAdmin) updates.notes = body.notes;
 
     const { error } = await admin
       .from("producer_orders")
       .update(updates)
       .eq("id", id);
-    if (error) throw error;
+    if (error) {
+      if (/cargo_company_id/i.test(error.message || "")) {
+        return NextResponse.json(
+          {
+            error:
+              "Sipariş kargo alanı henüz hazır değil. scripts/add-producer-order-cargo.sql dosyasını çalıştırın.",
+          },
+          { status: 500 }
+        );
+      }
+      throw error;
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

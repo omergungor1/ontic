@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import CargoCompanySelect from "@/components/CargoCompanySelect";
 import ImageLightbox from "@/components/ImageLightbox";
 import StorageImage from "@/components/StorageImage";
 import { formatDate, formatPrice, PRODUCER_ORDER_STATUS } from "@/lib/format";
@@ -13,10 +14,13 @@ const STATUS_FLOW = ["created", "confirmed", "ready", "completed"];
 const STOCK_INFO_STATUSES = ["created", "confirmed", "ready"];
 
 const NEXT_ACTION_LABEL = {
-  created: "Siparişi Onayla",
+  created: "Kargo seçip siparişi onayla",
   confirmed: "Hazır Olarak İşaretle",
   ready: "Kargolandı Olarak İşaretle",
 };
+
+const ORDER_SELECT = `*, cargo_companies(id, name), producer_order_items(*, products!product_id(title, image_url)), trendyol_orders!trendyol_order_id(order_number, customer_first_name, customer_last_name, shipment_address)`;
+const ORDER_SELECT_PLAIN = `*, producer_order_items(*, products!product_id(title, image_url)), trendyol_orders!trendyol_order_id(order_number, customer_first_name, customer_last_name, shipment_address)`;
 
 export default function ProducerOrderDetailPage() {
   const params = useParams();
@@ -31,18 +35,29 @@ export default function ProducerOrderDetailPage() {
   const [message, setMessage] = useState("");
   const [cargoPreviewOpen, setCargoPreviewOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [cargoCompanies, setCargoCompanies] = useState([]);
+  const [cargoCompanyId, setCargoCompanyId] = useState("");
 
   async function load() {
     if (!orderId) return;
     setLoading(true);
     const supabase = createClient();
-    const { data } = await supabase
+    let orderResult = await supabase
       .from("producer_orders")
-      .select(
-        "*, producer_order_items(*, products!product_id(title, image_url)), trendyol_orders!trendyol_order_id(order_number, customer_first_name, customer_last_name, shipment_address)"
-      )
+      .select(ORDER_SELECT)
       .eq("id", orderId)
       .maybeSingle();
+    if (
+      orderResult.error &&
+      /cargo_compan/i.test(orderResult.error.message || "")
+    ) {
+      orderResult = await supabase
+        .from("producer_orders")
+        .select(ORDER_SELECT_PLAIN)
+        .eq("id", orderId)
+        .maybeSingle();
+    }
+    const data = orderResult.data;
     setOrder(data || null);
     const lineItems = data?.producer_order_items || [];
     setItems(lineItems);
@@ -72,6 +87,24 @@ export default function ProducerOrderDetailPage() {
       setStockByProductId({});
     }
 
+    const [{ data: companies }, { data: profile }] = await Promise.all([
+      supabase
+        .from("cargo_companies")
+        .select("id, name, is_active, sort_order")
+        .order("sort_order", { ascending: true }),
+      data?.producer_id
+        ? supabase
+            .from("profiles")
+            .select("cargo_company_id")
+            .eq("id", data.producer_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+    setCargoCompanies(companies || []);
+    setCargoCompanyId(
+      data?.cargo_company_id || profile?.cargo_company_id || ""
+    );
+
     setLoading(false);
   }
 
@@ -81,13 +114,21 @@ export default function ProducerOrderDetailPage() {
   }, [orderId]);
 
   async function updateStatus(status) {
+    if (order?.status === "created" && status === "confirmed" && !cargoCompanyId) {
+      setMessage("Kargo firması seçin");
+      return;
+    }
     setUpdating(true);
     setMessage("");
     try {
+      const body = { status };
+      if (order?.status === "created" && status === "confirmed") {
+        body.cargoCompanyId = cargoCompanyId;
+      }
       const res = await fetch(`/api/producer-orders/${orderId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Güncellenemedi");
@@ -136,6 +177,11 @@ export default function ProducerOrderDetailPage() {
     currentIndex >= 0 && currentIndex + 1 < STATUS_FLOW.length
       ? STATUS_FLOW[currentIndex + 1]
       : null;
+  const cargoName =
+    order.cargo_companies?.name ||
+    cargoCompanies.find((company) => company.id === order.cargo_company_id)
+      ?.name ||
+    "";
   const isFinished =
     order.status === "completed" || order.status === "shipped";
   const showStockInfo = STOCK_INFO_STATUSES.includes(order.status);
@@ -317,9 +363,28 @@ export default function ProducerOrderDetailPage() {
 
       {nextStatus ? (
         <div className="space-y-3">
+          {order.status === "created" ? (
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-semibold text-zinc-800">
+                Kargo firması
+              </span>
+              <CargoCompanySelect
+                companies={cargoCompanies}
+                value={cargoCompanyId}
+                disabled={updating}
+                onChange={setCargoCompanyId}
+                className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-base font-medium"
+              />
+            </label>
+          ) : cargoName ? (
+            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+              <p className="text-xs font-medium text-zinc-500">Kargo firması</p>
+              <p className="text-lg font-semibold text-zinc-900">{cargoName}</p>
+            </div>
+          ) : null}
           <button
             type="button"
-            disabled={updating}
+            disabled={updating || (order.status === "created" && !cargoCompanyId)}
             onClick={() => updateStatus(nextStatus)}
             className="w-full rounded-2xl bg-orange-600 py-4 text-lg font-semibold text-white disabled:opacity-60"
           >

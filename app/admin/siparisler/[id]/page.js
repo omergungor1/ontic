@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import CargoCompanySelect from "@/components/CargoCompanySelect";
 import ImageLightbox from "@/components/ImageLightbox";
 import StorageImage from "@/components/StorageImage";
 import BackButton from "@/components/BackButton";
@@ -135,6 +136,8 @@ export default function AdminOrderDetailPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [cargoUploadingId, setCargoUploadingId] = useState(null);
+  const [cargoCompanies, setCargoCompanies] = useState([]);
+  const [cargoSavingId, setCargoSavingId] = useState(null);
   const [cargoPreviewUrl, setCargoPreviewUrl] = useState("");
   const [orderCancelOpen, setOrderCancelOpen] = useState(false);
   const [orderCancelSaving, setOrderCancelSaving] = useState(false);
@@ -172,13 +175,25 @@ export default function AdminOrderDetailPage() {
     let producerOrdersResult = await supabase
       .from("producer_orders")
       .select(
-        "*, profiles!producer_id(full_name, username, person_multiplier, cargo_companies(name)), producer_order_items(*, products!product_id(title))"
+        "*, cargo_companies!producer_orders_cargo_company_id_fkey(id, name), profiles!producer_id(full_name, username, person_multiplier, cargo_company_id, cargo_companies(id, name)), producer_order_items(*, products!product_id(title))"
       )
       .eq("trendyol_order_id", orderId)
       .order("created_at", { ascending: false });
     if (
       producerOrdersResult.error &&
-      /cargo_companies/i.test(producerOrdersResult.error.message || "")
+      /cargo_compan/i.test(producerOrdersResult.error.message || "")
+    ) {
+      producerOrdersResult = await supabase
+        .from("producer_orders")
+        .select(
+          "*, profiles!producer_id(full_name, username, person_multiplier, cargo_companies(name)), producer_order_items(*, products!product_id(title))"
+        )
+        .eq("trendyol_order_id", orderId)
+        .order("created_at", { ascending: false });
+    }
+    if (
+      producerOrdersResult.error &&
+      /cargo_compan/i.test(producerOrdersResult.error.message || "")
     ) {
       producerOrdersResult = await supabase
         .from("producer_orders")
@@ -188,6 +203,11 @@ export default function AdminOrderDetailPage() {
         .eq("trendyol_order_id", orderId)
         .order("created_at", { ascending: false });
     }
+    const { data: companyRows } = await supabase
+      .from("cargo_companies")
+      .select("id, name, is_active, sort_order")
+      .order("sort_order", { ascending: true });
+    setCargoCompanies(companyRows || []);
     const producerOrdersData = producerOrdersResult.data;
 
     const { data: producers } = await supabase
@@ -466,6 +486,26 @@ export default function AdminOrderDetailPage() {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function updateProducerCargo(producerOrderId, cargoCompanyId) {
+    setCargoSavingId(producerOrderId);
+    setError("");
+    setMessage("");
+    try {
+      const res = await fetch(`/api/producer-orders/${producerOrderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cargoCompanyId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Kargo firması güncellenemedi");
+      await load({ silent: true });
+    } catch (err) {
+      setError(err.message || "Kargo firması güncellenemedi");
+    } finally {
+      setCargoSavingId(null);
     }
   }
 
@@ -801,17 +841,6 @@ export default function AdminOrderDetailPage() {
                     <p className="text-xs text-zinc-500">
                       @{po.profiles?.username} · {formatDate(po.created_at)}
                     </p>
-                    <p
-                      className={`mt-1 text-xs font-medium ${
-                        po.profiles?.cargo_companies?.name
-                          ? "text-zinc-700"
-                          : "text-amber-700"
-                      }`}
-                    >
-                      {po.profiles?.cargo_companies?.name
-                        ? po.profiles.cargo_companies.name
-                        : "Tercih edilen kargo yok"}
-                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span
@@ -832,6 +861,22 @@ export default function AdminOrderDetailPage() {
                     ) : null}
                   </div>
                 </div>
+                <label className="mt-4 block rounded-xl bg-zinc-50 px-3 py-3">
+                  <span className="mb-1.5 block text-sm font-semibold text-zinc-900">
+                    Kargo firması
+                  </span>
+                  <CargoCompanySelect
+                    companies={cargoCompanies}
+                    value={
+                      po.cargo_company_id || po.profiles?.cargo_company_id || ""
+                    }
+                    disabled={cargoSavingId === po.id}
+                    onChange={(cargoCompanyId) =>
+                      updateProducerCargo(po.id, cargoCompanyId)
+                    }
+                    className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base font-semibold text-zinc-900"
+                  />
+                </label>
                 <ul className="mt-3 space-y-1 text-sm text-zinc-600">
                   {(po.producer_order_items || []).map((line) => (
                     <li key={line.id} className="flex justify-between gap-3">

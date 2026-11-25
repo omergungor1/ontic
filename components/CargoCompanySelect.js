@@ -2,6 +2,7 @@ export default function CargoCompanySelect({
   companies,
   value,
   onChange,
+  disabled = false,
   className = "w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm",
 }) {
   const visible = (companies || []).filter(
@@ -11,6 +12,7 @@ export default function CargoCompanySelect({
   return (
     <select
       value={value || ""}
+      disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
       className={className}
     >
