@@ -28,6 +28,12 @@ function statusClass(status) {
   }
 }
 
+function cargoLabel(order, fallbackName) {
+  const related = order?.cargo_companies;
+  const saved = Array.isArray(related) ? related[0]?.name : related?.name;
+  return saved || fallbackName || "";
+}
+
 function mergeUnique(prev, next) {
   const seen = new Set(prev.map((o) => o.id));
   const merged = [...prev];
@@ -41,6 +47,8 @@ function mergeUnique(prev, next) {
 
 export default function ProducerOrdersPage() {
   const [orders, setOrders] = useState([]);
+  const [openOrderIds, setOpenOrderIds] = useState({});
+  const [defaultCargoName, setDefaultCargoName] = useState("");
   const [stockByProductId, setStockByProductId] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -63,16 +71,26 @@ export default function ProducerOrdersPage() {
     }
     if (!uid) return [];
 
-    const { data } = await supabase
+    let result = await supabase
       .from("producer_orders")
       .select(
-        "*, producer_order_items(*, products!product_id(title)), trendyol_orders!trendyol_order_id(order_number, customer_first_name, customer_last_name)"
+        "*, cargo_companies(id, name), producer_order_items(*, products!product_id(title)), trendyol_orders!trendyol_order_id(order_number, customer_first_name, customer_last_name)"
       )
       .eq("producer_id", uid)
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
+    if (result.error && /cargo_compan/i.test(result.error.message || "")) {
+      result = await supabase
+        .from("producer_orders")
+        .select(
+          "*, producer_order_items(*, products!product_id(title)), trendyol_orders!trendyol_order_id(order_number, customer_first_name, customer_last_name)"
+        )
+        .eq("producer_id", uid)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1);
+    }
 
-    return data || [];
+    return result.data || [];
   }, []);
 
   useEffect(() => {
@@ -85,6 +103,16 @@ export default function ProducerOrdersPage() {
 
       const uid = userIdRef.current;
       if (uid) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("cargo_companies(name)")
+          .eq("id", uid)
+          .maybeSingle();
+        if (!cancelled) {
+          const related = profile?.cargo_companies;
+          const name = Array.isArray(related) ? related[0]?.name : related?.name;
+          setDefaultCargoName(name || "");
+        }
         const { data: stockRows } = await supabase
           .from("producer_products")
           .select("product_id, stock_quantity")
@@ -165,6 +193,7 @@ export default function ProducerOrdersPage() {
         <div className="space-y-3">
           {orders.map((order) => {
             const lines = order.producer_order_items || [];
+            const cargoName = cargoLabel(order, defaultCargoName);
             const showStockInfo = STOCK_INFO_STATUSES.includes(order.status);
             const shortageCount = showStockInfo
               ? lines.filter((i) => {
@@ -173,97 +202,147 @@ export default function ProducerOrdersPage() {
                   return stock < qty;
                 }).length
               : 0;
+            const open = Boolean(openOrderIds[order.id]);
             return (
-              <Link
+              <div
                 key={order.id}
-                href={`/uretici/siparisler/${order.id}`}
-                className={`block rounded-2xl border bg-white p-4 ${
+                className={`rounded-2xl border bg-white ${
                   shortageCount > 0 ? "border-rose-200" : "border-zinc-200"
                 }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-semibold">
-                    {order.trendyol_orders?.order_number || "Sipariş"}
-                  </p>
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-medium ${statusClass(
-                      order.status
-                    )}`}
+                <div className="flex items-start gap-1 p-4">
+                  <Link
+                    href={`/uretici/siparisler/${order.id}`}
+                    className="min-w-0 flex-1"
                   >
-                    {PRODUCER_ORDER_STATUS[order.status] || order.status}
-                  </span>
-                </div>
-
-                <ul className="mt-3 space-y-2">
-                  {lines.map((item) => {
-                    const qty = Number(item.quantity || 0);
-                    const stock = Number(stockByProductId[item.product_id] ?? 0);
-                    const shortage = showStockInfo && stock < qty;
-                    const missing = Math.max(0, qty - stock);
-                    return (
-                      <li
-                        key={item.id}
-                        className={`rounded-xl px-3 py-2.5 ${
-                          shortage ? "bg-rose-50" : "bg-zinc-50"
-                        }`}
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold">
+                        {order.trendyol_orders?.order_number || "Sipariş"}
+                      </p>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${statusClass(
+                          order.status
+                        )}`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-zinc-800">
-                            {item.products?.title || "Ürün"}
-                          </p>
-                          <p className="shrink-0 text-base font-bold tabular-nums text-zinc-900">
-                            {qty}{" "}
-                            <span className="text-xs font-semibold text-zinc-500">
-                              adet
-                            </span>
-                          </p>
-                        </div>
-                        {showStockInfo ? (
-                          <div
-                            className={`mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium ${
-                              shortage ? "text-rose-700" : "text-emerald-700"
-                            }`}
-                          >
-                            <span>Güncel stok: {stock} adet</span>
-                            {shortage ? (
-                              <span className="rounded-md bg-rose-100 px-1.5 py-0.5 font-semibold">
-                                {missing} eksik
-                              </span>
-                            ) : (
-                              <span>Yeterli</span>
-                            )}
-                          </div>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
+                        {PRODUCER_ORDER_STATUS[order.status] || order.status}
+                      </span>
+                    </div>
 
-                {shortageCount > 0 ? (
-                  <p className="mt-2 text-sm font-semibold text-rose-700">
-                    {shortageCount} üründe stok eksik
-                  </p>
-                ) : null}
-
-                <div className="mt-3 flex items-end justify-between gap-3 text-sm">
-                  <span className="text-zinc-400">
-                    {formatDate(order.created_at)}
-                  </span>
-                  <div className="text-right">
-                    <p className="font-semibold text-emerald-600">
-                      {formatPrice(
-                        Number(order.producer_earning || 0) +
-                          Number(order.material_support || 0)
-                      )}
-                    </p>
-                    {Number(order.material_support || 0) > 0 ? (
-                      <p className="text-xs font-medium text-sky-700">
-                        +{formatPrice(order.material_support)} malzeme desteği
+                    {shortageCount > 0 ? (
+                      <p className="mt-2 text-sm font-semibold text-rose-700">
+                        {shortageCount} üründe stok eksik
                       </p>
                     ) : null}
-                  </div>
+
+                    <div className="mt-3 flex items-end justify-between gap-3 text-sm">
+                      <div>
+                        <p
+                          className={`font-semibold ${
+                            cargoName ? "text-zinc-800" : "text-zinc-400"
+                          }`}
+                        >
+                          {cargoName || "Kargo firması seçilmemiş"}
+                        </p>
+                        <span className="text-zinc-400">
+                          {formatDate(order.created_at)}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-emerald-600">
+                          {formatPrice(
+                            Number(order.producer_earning || 0) +
+                              Number(order.material_support || 0)
+                          )}
+                        </p>
+                        {Number(order.material_support || 0) > 0 ? (
+                          <p className="text-xs font-medium text-sky-700">
+                            +{formatPrice(order.material_support)} malzeme
+                            desteği
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </Link>
+                  {lines.length > 0 ? (
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      aria-label={open ? "Ürünleri gizle" : "Ürünleri göster"}
+                      onClick={() =>
+                        setOpenOrderIds((prev) => ({
+                          ...prev,
+                          [order.id]: !prev[order.id],
+                        }))
+                      }
+                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-100"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        strokeWidth="2"
+                        className={`h-5 w-5 transition ${open ? "rotate-180" : ""}`}
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M6 9l6 6 6-6"
+                          stroke="currentColor"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                  ) : null}
                 </div>
-              </Link>
+
+                {open ? (
+                  <ul className="space-y-2 px-4 pb-4">
+                    {lines.map((item) => {
+                      const qty = Number(item.quantity || 0);
+                      const stock = Number(
+                        stockByProductId[item.product_id] ?? 0
+                      );
+                      const shortage = showStockInfo && stock < qty;
+                      const missing = Math.max(0, qty - stock);
+                      return (
+                        <li
+                          key={item.id}
+                          className={`rounded-xl px-3 py-2.5 ${
+                            shortage ? "bg-rose-50" : "bg-zinc-50"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="min-w-0 flex-1 text-sm font-medium leading-snug text-zinc-800">
+                              {item.products?.title || "Ürün"}
+                            </p>
+                            <p className="shrink-0 text-base font-bold tabular-nums text-zinc-900">
+                              {qty}{" "}
+                              <span className="text-xs font-semibold text-zinc-500">
+                                adet
+                              </span>
+                            </p>
+                          </div>
+                          {showStockInfo ? (
+                            <div
+                              className={`mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium ${
+                                shortage ? "text-rose-700" : "text-emerald-700"
+                              }`}
+                            >
+                              <span>Güncel stok: {stock} adet</span>
+                              {shortage ? (
+                                <span className="rounded-md bg-rose-100 px-1.5 py-0.5 font-semibold">
+                                  {missing} eksik
+                                </span>
+                              ) : (
+                                <span>Yeterli</span>
+                              )}
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </div>
             );
           })}
         </div>

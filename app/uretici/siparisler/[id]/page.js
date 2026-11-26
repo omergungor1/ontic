@@ -179,8 +179,9 @@ export default function ProducerOrderDetailPage() {
       : null;
   const cargoName =
     order.cargo_companies?.name ||
-    cargoCompanies.find((company) => company.id === order.cargo_company_id)
-      ?.name ||
+    cargoCompanies.find(
+      (company) => company.id === (order.cargo_company_id || cargoCompanyId)
+    )?.name ||
     "";
   const isFinished =
     order.status === "completed" || order.status === "shipped";
@@ -361,6 +362,19 @@ export default function ProducerOrderDetailPage() {
         </span>
       </div>
 
+      {order.status !== "created" ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+          <p className="text-xs font-medium text-zinc-500">Kargo firması</p>
+          <p
+            className={`text-lg font-semibold ${
+              cargoName ? "text-zinc-900" : "text-zinc-400"
+            }`}
+          >
+            {cargoName || "Kargo firması seçilmemiş"}
+          </p>
+        </div>
+      ) : null}
+
       {nextStatus ? (
         <div className="space-y-3">
           {order.status === "created" ? (
@@ -376,11 +390,6 @@ export default function ProducerOrderDetailPage() {
                 className="w-full rounded-2xl border border-zinc-300 bg-white px-3 py-3 text-base font-medium"
               />
             </label>
-          ) : cargoName ? (
-            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-              <p className="text-xs font-medium text-zinc-500">Kargo firması</p>
-              <p className="text-lg font-semibold text-zinc-900">{cargoName}</p>
-            </div>
           ) : null}
           <button
             type="button"
